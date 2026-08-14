@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: quizapp-backend
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: filesystem:../db/migration
+
+server:
+  servlet:
+    context-path: /api/v1

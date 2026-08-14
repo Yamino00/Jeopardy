@@ -1,0 +1,2 @@
+-- Copia iniziale di schema.sql
+-- Inserire qui lo schema SQL applicativo.
