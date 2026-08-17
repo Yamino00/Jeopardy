@@ -15,6 +15,9 @@ spring:
     property-naming-strategy: SNAKE_CASE
 
 app:
+  # Origin ammesse per le chiamate CORS dal client web (lista separata da virgole)
+  cors:
+    allowed-origins: "*"
   # Lingua di default per argomenti e domande
   lingua: it
   # Percorsi esclusi dall'obbligo di header X-Client-Id (lista separata da virgole)

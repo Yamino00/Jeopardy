@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -47,7 +48,9 @@ public class ClientIdFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI();
 
-        if (publicPaths.contains(path)) {
+        // Il preflight CORS non porta mai header custom: rifiutarlo qui
+        // impedirebbe al browser di inviare la richiesta vera
+        if (CorsUtils.isPreFlightRequest(request) || publicPaths.contains(path)) {
             filterChain.doFilter(request, response);
             return;
         }
