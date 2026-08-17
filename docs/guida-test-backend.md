@@ -14,12 +14,39 @@ Windows.
 
 ## Architettura
 
-| Container | Immagine | Porta | Note |
+| Container | Immagine | Porta host | Note |
 |---|---|---|---|
-| `jeopardy-postgres` | postgres:16 | 5432 | dati nel volume `postgres_data` |
+| `jeopardy-postgres` | postgres:16 | **5433** (→ 5432 nel container) | dati nel volume `postgres_data` |
 | `jeopardy-backend` | build multi-stage da `backend/Dockerfile` | 8080 | JRE 21 alpine, utente non-root |
 
 Al primo avvio il backend applica da solo le 6 migrazioni Flyway.
+
+> **Perché 5433 e non 5432?** Windows spesso ha già un PostgreSQL nativo in
+> ascolto sulla 5432 (un'installazione precedente, un altro progetto). Se
+> il tuo host non ha nulla su 5432 puoi rimappare a piacere in
+> `docker-compose.yml`, ma lascia la porta *interna* del container a 5432 —
+> tra container si parla sempre così, cambia solo `"5433:5432"` a sinistra.
+
+### Connessione da un client esterno (es. DBeaver)
+
+| Campo | Valore |
+|---|---|
+| Host | `localhost` |
+| Porta | `5433` |
+| Database | `jeopardy` |
+| Utente | `jeopardy` |
+| Password | `jeopardy` |
+
+Se ottieni `autenticazione con password fallita`, quasi sempre significa che
+qualcos'altro sta rispondendo sulla porta a cui ti sei collegato (un Postgres
+nativo su 5432, per esempio) invece del container. Verifica chi ascolta:
+
+```bash
+Get-NetTCPConnection -LocalPort 5433 -State Listen
+```
+
+deve restituire un processo Docker (`com.docker.backend.exe` o simile), non
+`postgres.exe`.
 
 ## 1. Avvio dello stack
 

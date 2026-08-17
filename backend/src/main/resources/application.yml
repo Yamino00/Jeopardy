@@ -36,7 +36,7 @@ app:
     gemini:
       endpoint: https://generativelanguage.googleapis.com/v1beta
       api-key: ${GEMINI_API_KEY:}
-      modello: gemini-3.7-flash
+      modello: gemini-3.5-flash
       temperature: 0.9
   tabellone:
     righe-default: 5
@@ -47,6 +47,6 @@ app:
     placeholder-testo: Domanda da completare
   partita:
     # Giorni dopo i quali una partita non conclusa scade
-    scadenza-giorni: 30
+    scadenza-giorni: 1
     # Cron del job di pulizia delle partite scadute
     pulizia-cron: "0 0 4 * * *"

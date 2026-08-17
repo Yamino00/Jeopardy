@@ -8,7 +8,10 @@ services:
       POSTGRES_USER: jeopardy
       POSTGRES_PASSWORD: jeopardy
     ports:
-      - "5432:5432"
+      # host:container - 5433 sull'host perche' la 5432 e' spesso occupata
+      # da un'installazione nativa di Postgres su Windows. Dentro alla rete
+      # Docker, tra i container, resta sempre 5432 (vedi DB_URL sotto)
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
