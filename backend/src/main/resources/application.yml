@@ -1,6 +1,6 @@
 spring:
   application:
-    name: quizapp-backend
+    name: jeopardy-backend
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -11,8 +11,42 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-    locations: filesystem:../db/migration
+  jackson:
+    property-naming-strategy: SNAKE_CASE
 
-server:
-  servlet:
-    context-path: /api/v1
+app:
+  # Lingua di default per argomenti e domande
+  lingua: it
+  # Percorsi esclusi dall'obbligo di header X-Client-Id (lista separata da virgole)
+  percorsi-pubblici: /api/salute
+  dedup:
+    # Similarita trigram oltre la quale un testo e considerato duplicato
+    soglia-similarita: 0.6
+  banca:
+    # Segnalazioni oltre le quali una domanda passa a stato 'segnalata'
+    soglia-segnalazioni: 3
+  ia:
+    # Generazioni LLM al giorno per client (le risposte servite dalla banca non contano)
+    quota-giornaliera: 20
+    # Domande extra chieste all'LLM oltre alle mancanti, per assorbire gli scarti
+    overprovisioning: 2
+    # Costo stimato per 1000 token (0 sul free tier)
+    costo-per-1k-input: 0
+    costo-per-1k-output: 0
+    gemini:
+      endpoint: https://generativelanguage.googleapis.com/v1beta
+      api-key: ${GEMINI_API_KEY:}
+      modello: gemini-2.0-flash
+      temperature: 0.9
+  tabellone:
+    righe-default: 5
+    punti-base-default: 200
+    codice-pubblico-lunghezza: 6
+    codice-modifica-lunghezza: 12
+    # Testo mostrato nelle celle rimaste senza domanda dopo la deduplicazione
+    placeholder-testo: Domanda da completare
+  partita:
+    # Giorni dopo i quali una partita non conclusa scade
+    scadenza-giorni: 30
+    # Cron del job di pulizia delle partite scadute
+    pulizia-cron: "0 0 4 * * *"
