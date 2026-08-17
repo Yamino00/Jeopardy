@@ -98,6 +98,24 @@ hosting statico con free tier.
 
 ## 5. Troubleshooting
 
+- **`Flutter failed to delete a directory at "...\build\flutter_assets"`** → il
+  progetto sta dentro OneDrive, che con Files On-Demand trasforma gli artefatti
+  appena scritti in segnaposto cloud (`ReparsePoint` + `RecallOnDataAccess`) e
+  li marca ReadOnly: Flutter non riesce più a cancellarli. La cartella di build
+  va tenuta fuori dalla sincronizzazione — c'è uno script che la sposta con una
+  junction, da rilanciare dopo ogni `flutter clean`:
+
+  ```bash
+  .\scripts\fix-build-onedrive.ps1
+  ```
+
+- **`SocketException ... errno = 10048` sulla porta 5173** → un server Flutter è
+  rimasto acceso da una sessione precedente. Trova e chiudi il processo:
+
+  ```bash
+  Get-NetTCPConnection -LocalPort 5173 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+
 - **La pagina resta bianca / "Internal Server Error"** → manca il supporto web:
   `cd frontend; flutter create . --platforms=web`.
 - **Errori CORS in console** → il backend deve essere aggiornato: le origin
