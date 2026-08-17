@@ -109,6 +109,16 @@ hosting statico con free tier.
   .\scripts\fix-build-onedrive.ps1
   ```
 
+- **`Error when reading '.../AppData/Local/Pub/Cache/...': Impossibile trovare
+  il percorso specificato`** (centinaia di righe, un errore per ogni import) →
+  la cache di compilazione incrementale nella cartella di build contiene
+  riferimenti non più validi. I pacchetti **ci sono**: è la cache a essere
+  guasta. Si risolve svuotandola con lo stesso script:
+
+  ```bash
+  .\scripts\fix-build-onedrive.ps1
+  ```
+
 - **`SocketException ... errno = 10048` sulla porta 5173** → un server Flutter è
   rimasto acceso da una sessione precedente. Trova e chiudi il processo:
 

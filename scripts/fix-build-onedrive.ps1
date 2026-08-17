@@ -26,7 +26,14 @@ $build = Join-Path $progetto 'frontend\build'
 $target = 'C:\Apps\jeopardy-build\frontend'
 
 if ((Get-Item $build -Force -ErrorAction SilentlyContinue).LinkType -eq 'Junction') {
-    Write-Host "Junction gia presente: $build -> $target" -ForegroundColor Green
+    # Junction gia' a posto: resta da svuotare la cache di compilazione, che
+    # dopo uno spostamento della build resta con riferimenti non piu' validi e
+    # fa fallire il compilatore con
+    #   Error when reading '.../AppData/Local/Pub/Cache/...': percorso non trovato
+    Write-Host "Junction gia presente, svuoto la cache di compilazione..."
+    Get-ChildItem $target -Force -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    Write-Host "Fatto: la prossima compilazione riparte da zero." -ForegroundColor Green
     exit 0
 }
 
