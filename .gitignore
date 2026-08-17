@@ -47,3 +47,5 @@ Thumbs.db
 # Env
 .env
 .env.*
+# il template non contiene segreti e va versionato
+!.env.example
