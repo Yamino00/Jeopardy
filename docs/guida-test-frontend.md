@@ -110,14 +110,21 @@ hosting statico con free tier.
   ```
 
 - **`Error when reading '.../AppData/Local/Pub/Cache/...': Impossibile trovare
-  il percorso specificato`** (centinaia di righe, un errore per ogni import) →
-  la cache di compilazione incrementale nella cartella di build contiene
-  riferimenti non più validi. I pacchetti **ci sono**: è la cache a essere
-  guasta. Si risolve svuotandola con lo stesso script:
+  il percorso specificato`** (centinaia di righe, un errore per ogni import,
+  anche sui pacchetti interni di Flutter come `vector_math` e `characters`) →
+  si è corrotta la mappa dei package in `frontend\.dart_tool`. I pacchetti
+  **ci sono** sul disco: è la mappa a non essere leggibile. Lo script la
+  rigenera:
 
   ```bash
   .\scripts\fix-build-onedrive.ps1
   ```
+
+  Se ricapita spesso, la causa di fondo è che il progetto sta dentro OneDrive:
+  la sincronizzazione interferisce con i file che i build tool riscrivono di
+  continuo. La soluzione definitiva è spostare il progetto fuori da OneDrive
+  (per esempio in `C:\Progetti\Jeopardy`), oppure mettere in pausa la
+  sincronizzazione mentre si sviluppa.
 
 - **`SocketException ... errno = 10048` sulla porta 5173** → un server Flutter è
   rimasto acceso da una sessione precedente. Trova e chiudi il processo:

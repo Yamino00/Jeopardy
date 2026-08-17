@@ -1,18 +1,20 @@
-# Sposta la cartella di build di Flutter fuori da OneDrive.
+# Ripristina un ambiente di build Flutter sano quando il progetto vive dentro
+# OneDrive. Fa due cose:
 #
-# Perche' serve: il progetto vive dentro una cartella sincronizzata da
-# OneDrive. Con Files On-Demand attivo, OneDrive trasforma i file appena
-# scritti in segnaposto cloud (attributi ReparsePoint + RecallOnDataAccess) e
-# li marca ReadOnly. Quando Flutter prova a cancellare build\flutter_assets
-# per ricrearla, Windows tenta di riscaricare quei segnaposto e l'operazione
-# fallisce con:
+#   1. Sposta frontend\build fuori dalla cartella sincronizzata (junction).
+#      Con Files On-Demand attivo OneDrive marca gli artefatti appena scritti
+#      come segnaposto cloud e ReadOnly: quando Flutter prova a cancellare
+#      build\flutter_assets per ricrearla l'operazione fallisce con
+#        Flutter failed to delete a directory at "...\build\flutter_assets".
+#      Gli artefatti non vanno comunque mai sincronizzati: cambiano a ogni
+#      compilazione e pesano centinaia di MB.
 #
-#   Flutter failed to delete a directory at "...\build\flutter_assets".
-#   The flutter tool cannot access the file or directory.
-#
-# Gli artefatti di build non vanno comunque mai sincronizzati: cambiano a ogni
-# compilazione e pesano centinaia di MB. Questo script sostituisce
-# frontend\build con una junction verso una cartella locale fuori da OneDrive.
+#   2. Rigenera .dart_tool (la mappa package: -> cartella nella pub cache).
+#      Se quel file si corrompe o resta a mezzo, il compilatore fallisce su
+#      OGNI import con centinaia di righe
+#        Error when reading '.../AppData/Local/Pub/Cache/...':
+#        Impossibile trovare il percorso specificato
+#      anche se i pacchetti sono presenti sul disco.
 #
 # Da rilanciare dopo un `flutter clean`, che rimuove la junction.
 #
@@ -22,30 +24,43 @@
 $ErrorActionPreference = 'Stop'
 
 $progetto = Split-Path -Parent $PSScriptRoot
-$build = Join-Path $progetto 'frontend\build'
+$frontend = Join-Path $progetto 'frontend'
+$build = Join-Path $frontend 'build'
+$dartTool = Join-Path $frontend '.dart_tool'
 $target = 'C:\Apps\jeopardy-build\frontend'
 
+# --- 1. build fuori da OneDrive -------------------------------------------
 if ((Get-Item $build -Force -ErrorAction SilentlyContinue).LinkType -eq 'Junction') {
-    # Junction gia' a posto: resta da svuotare la cache di compilazione, che
-    # dopo uno spostamento della build resta con riferimenti non piu' validi e
-    # fa fallire il compilatore con
-    #   Error when reading '.../AppData/Local/Pub/Cache/...': percorso non trovato
     Write-Host "Junction gia presente, svuoto la cache di compilazione..."
     Get-ChildItem $target -Force -ErrorAction SilentlyContinue |
         ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-    Write-Host "Fatto: la prossima compilazione riparte da zero." -ForegroundColor Green
-    exit 0
+} else {
+    if (Test-Path $build) {
+        Write-Host "Rimuovo la cartella build sincronizzata..."
+        # -R: senza togliere ReadOnly la cancellazione dei segnaposto fallisce
+        & attrib -R "$build\*" /S /D 2>&1 | Out-Null
+        Remove-Item -Recurse -Force $build
+    }
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    New-Item -ItemType Junction -Path $build -Target $target | Out-Null
+    Write-Host "Build spostata: $build -> $target"
 }
 
-if (Test-Path $build) {
-    Write-Host "Rimuovo la cartella build sincronizzata..."
-    # -R: senza togliere ReadOnly la cancellazione dei segnaposto fallisce
-    & attrib -R "$build\*" /S /D 2>&1 | Out-Null
-    Remove-Item -Recurse -Force $build
+# --- 2. risoluzione dei package ------------------------------------------
+Write-Host "Rigenero .dart_tool..."
+Get-ChildItem $dartTool -Force -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+
+Push-Location $frontend
+try {
+    # flutter deve essere raggiungibile: se non e' nel PATH lo aggiungiamo
+    if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
+        $env:PATH = "C:\Apps\flutter\bin;$env:PATH"
+    }
+    & flutter pub get
+} finally {
+    Pop-Location
 }
 
-New-Item -ItemType Directory -Force -Path $target | Out-Null
-New-Item -ItemType Junction -Path $build -Target $target | Out-Null
-
-Write-Host "Fatto: $build -> $target" -ForegroundColor Green
-Write-Host "Gli artefatti di build non vengono piu sincronizzati da OneDrive."
+Write-Host ""
+Write-Host "Ambiente ripristinato: ora 'flutter run' riparte da zero." -ForegroundColor Green
