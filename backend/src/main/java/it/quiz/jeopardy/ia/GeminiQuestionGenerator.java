@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,8 +62,11 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
     @Override
     public GenerationOutcome generate(GenerationRequest request) {
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "Gemini API key non configurata (app.ia.gemini.api-key / GEMINI_API_KEY)");
+            // 503 esplicito: senza chiave il resto dell'app resta usabile e chi
+            // testa capisce subito cosa manca
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Generazione IA non configurata: impostare GEMINI_API_KEY "
+                            + "(app.ia.gemini.api-key)");
         }
 
         Map<String, Object> body = Map.of(

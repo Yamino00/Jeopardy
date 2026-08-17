@@ -11,6 +11,28 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jeopardy -d jeopardy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: jeopardy-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/jeopardy
+      DB_USERNAME: jeopardy
+      DB_PASSWORD: jeopardy
+      # Facoltativa: senza chiave la generazione IA risponde 503,
+      # il resto dell'app funziona
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "8080:8080"
 
 volumes:
   postgres_data:
