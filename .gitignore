@@ -49,3 +49,6 @@ Thumbs.db
 .env.*
 # il template non contiene segreti e va versionato
 !.env.example
+
+# Log di debug locali
+bug_*.txt
