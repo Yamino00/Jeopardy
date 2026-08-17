@@ -112,19 +112,20 @@ hosting statico con free tier.
 - **`Error when reading '.../AppData/Local/Pub/Cache/...': Impossibile trovare
   il percorso specificato`** (centinaia di righe, un errore per ogni import,
   anche sui pacchetti interni di Flutter come `vector_math` e `characters`) →
-  si è corrotta la mappa dei package in `frontend\.dart_tool`. I pacchetti
-  **ci sono** sul disco: è la mappa a non essere leggibile. Lo script la
-  rigenera:
+  `frontend\.dart_tool\package_config.json` punta a una pub cache che il tuo
+  utente non vede. Si risolve **rigenerandolo dalla tua shell**:
 
   ```bash
-  .\scripts\fix-build-onedrive.ps1
+  cd frontend; flutter pub get
   ```
 
-  Se ricapita spesso, la causa di fondo è che il progetto sta dentro OneDrive:
-  la sincronizzazione interferisce con i file che i build tool riscrivono di
-  continuo. La soluzione definitiva è spostare il progetto fuori da OneDrive
-  (per esempio in `C:\Progetti\Jeopardy`), oppure mettere in pausa la
-  sincronizzazione mentre si sviluppa.
+  > Importante: questo comando va lanciato **da te**, in un terminale normale.
+  > Se lo esegue un assistente/strumento che gira in una sandbox (per esempio
+  > l'app Claude, che virtualizza `%LOCALAPPDATA%` sotto
+  > `AppData\Local\Packages\<app>\LocalCache\Local\`), i pacchetti finiscono
+  > nella cache virtualizzata e il `package_config.json` generato punta a
+  > percorsi che esistono solo dentro quella sandbox: dal tuo terminale
+  > nessun import si risolve più.
 
 - **`SocketException ... errno = 10048` sulla porta 5173** → un server Flutter è
   rimasto acceso da una sessione precedente. Trova e chiudi il processo:
