@@ -27,10 +27,22 @@ Al primo avvio il backend applica da solo le 6 migrazioni Flyway.
 docker compose up -d --build
 ```
 
-Con la chiave Gemini (impostala PRIMA del comando, nella stessa shell):
+Con la chiave Gemini: copia `.env.example` in `.env` e incolla lì la chiave
+(il file è in `.gitignore`, non finisce mai nel repository). Docker Compose lo
+legge da solo:
 
 ```bash
-$env:GEMINI_API_KEY = "LA_TUA_CHIAVE"; docker compose up -d --build
+Copy-Item .env.example .env
+```
+
+Poi apri `.env`, valorizza `GEMINI_API_KEY=...` e avvia normalmente con
+`docker compose up -d --build`. Per cambiare modello (i modelli Gemini vengono
+dismessi nel tempo) agisci su `app.ia.gemini.modello` in
+`backend/src/main/resources/application.yml`. Per vedere quali sono attivi
+adesso per la tua chiave:
+
+```bash
+curl.exe -s -H "x-goog-api-key: $env:GEMINI_API_KEY" https://generativelanguage.googleapis.com/v1beta/models | Select-String '"name": "models/gemini'
 ```
 
 Verifica che il backend risponda (riprova dopo qualche secondo se parte adesso):
@@ -160,11 +172,21 @@ Api POST /api/tabelloni/$CODICE/celle/$cellaId/rigenera '' @{ 'X-Codice-Modifica
 
 ## 5. Generazione IA diretta e quota (solo con chiave)
 
-L'endpoint a grana fine usato anche dal tabellone:
+L'endpoint a grana fine usato anche dal tabellone. Gli id degli argomenti
+**non partono da 1** (la sequenza avanza anche sui tentativi falliti), quindi
+recupera prima quello vero invece di indovinarlo:
 
 ```bash
-Api POST /api/generazioni '{"argomento_id":1,"difficolta":3,"numero":2}'
+docker exec jeopardy-postgres psql -U jeopardy -d jeopardy -c "SELECT id, nome FROM argomento ORDER BY id;"
 ```
+
+```bash
+$ARG = (docker exec jeopardy-postgres psql -U jeopardy -d jeopardy -t -A -c "SELECT id FROM argomento WHERE slug='storia-romana';").Trim()
+Api POST /api/generazioni ('{"argomento_id":' + $ARG + ',"difficolta":3,"numero":2}')
+```
+
+> Se ottieni `404 Argomento N non trovato` è proprio questo il caso: l'id
+> passato non esiste. Rilancia la query qui sopra.
 
 > Verifica: `chiamata_llm=false` e `riusate>0` se la banca basta (il risparmio è
 > il cuore del progetto); `chiamata_llm=true` e `nuove_generate>0` se mancano.
@@ -281,8 +303,15 @@ docker logs jeopardy-backend --tail 50 -f
 
 - Il backend non parte / errore connessione DB → controlla `docker compose ps`:
   `jeopardy-postgres` deve essere `healthy` (il backend attende l'healthcheck).
-- `503` sulla creazione tabellone → manca `GEMINI_API_KEY` **e** la banca non ha
-  domande per quegli argomenti: usa il seed (passo 3) o imposta la chiave.
+- `404 Argomento N non trovato` → l'id non esiste; leggi gli id veri con la
+  query del passo 5 (non partono da 1).
+- `503 Generazione IA non configurata` → manca `GEMINI_API_KEY` **e** la banca
+  non ha domande per quegli argomenti: usa il seed (passo 3) o imposta la chiave.
+- `503 Il modello '...' non esiste o non e' piu disponibile` → Google ha
+  dismesso quel modello: aggiorna `app.ia.gemini.modello` con uno di quelli
+  elencati dalla query del passo 1.
+- `503 ... e' sovraccarico` → congestione temporanea del free tier, riprova fra
+  poco (capita anche sui modelli più recenti).
 - Celle con "Domanda da completare" → la banca/IA non aveva abbastanza domande
   per quella difficoltà: sono placeholder modificabili via PUT.
 - Porte occupate (5432/8080) → ferma il servizio in conflitto o cambia il

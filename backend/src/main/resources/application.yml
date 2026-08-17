@@ -36,7 +36,7 @@ app:
     gemini:
       endpoint: https://generativelanguage.googleapis.com/v1beta
       api-key: ${GEMINI_API_KEY:}
-      modello: gemini-2.0-flash
+      modello: gemini-3.7-flash
       temperature: 0.9
   tabellone:
     righe-default: 5

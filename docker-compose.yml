@@ -28,8 +28,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/jeopardy
       DB_USERNAME: jeopardy
       DB_PASSWORD: jeopardy
-      # Facoltativa: senza chiave la generazione IA risponde 503,
-      # il resto dell'app funziona
+      # Letta dal file .env (gitignored) o dall'ambiente: la chiave non va
+      # mai scritta qui. Senza chiave la generazione IA risponde 503 e il
+      # resto dell'app funziona
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8080:8080"
