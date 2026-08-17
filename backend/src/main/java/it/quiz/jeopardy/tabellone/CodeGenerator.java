@@ -1,5 +1,6 @@
 package it.quiz.jeopardy.tabellone;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
@@ -12,17 +13,24 @@ import java.security.SecureRandom;
 public class CodeGenerator {
 
     public static final String ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    public static final int PUBLIC_CODE_LENGTH = 6;
-    public static final int EDIT_CODE_LENGTH = 12;
 
     private final SecureRandom random = new SecureRandom();
+    private final int publicCodeLength;
+    private final int editCodeLength;
+
+    public CodeGenerator(
+            @Value("${app.tabellone.codice-pubblico-lunghezza:6}") int publicCodeLength,
+            @Value("${app.tabellone.codice-modifica-lunghezza:12}") int editCodeLength) {
+        this.publicCodeLength = publicCodeLength;
+        this.editCodeLength = editCodeLength;
+    }
 
     public String publicCode() {
-        return randomCode(PUBLIC_CODE_LENGTH);
+        return randomCode(publicCodeLength);
     }
 
     public String editCode() {
-        return randomCode(EDIT_CODE_LENGTH);
+        return randomCode(editCodeLength);
     }
 
     private String randomCode(int length) {

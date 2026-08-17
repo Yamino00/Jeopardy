@@ -27,6 +27,7 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
     private final String endpoint;
     private final String apiKey;
     private final String modello;
+    private final double temperature;
 
     /** Built lazily: the JDK HttpClient opens sockets already at build time. */
     private volatile RestClient restClient;
@@ -34,11 +35,13 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
     public GeminiQuestionGenerator(ObjectMapper objectMapper,
                                    @Value("${app.ia.gemini.endpoint}") String endpoint,
                                    @Value("${app.ia.gemini.api-key:}") String apiKey,
-                                   @Value("${app.ia.gemini.modello}") String modello) {
+                                   @Value("${app.ia.gemini.modello}") String modello,
+                                   @Value("${app.ia.gemini.temperature:0.9}") double temperature) {
         this.objectMapper = objectMapper;
         this.endpoint = endpoint;
         this.apiKey = apiKey;
         this.modello = modello;
+        this.temperature = temperature;
     }
 
     private RestClient restClient() {
@@ -66,7 +69,7 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
                         "parts", List.of(Map.of("text", buildPrompt(request))))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
-                        "temperature", 0.9));
+                        "temperature", temperature));
 
         String rawResponse = restClient().post()
                 .uri(uri -> uri.path("/models/{modello}:generateContent")

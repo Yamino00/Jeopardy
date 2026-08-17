@@ -26,14 +26,6 @@ public final class TabelloneDtos {
             @NotEmpty @Size(min = 1, max = 6) List<@NotBlank String> argomenti,
             @Min(3) @Max(5) Short righe,
             @Min(10) @Max(1000) Integer puntiBase) {
-
-        public short righeOrDefault() {
-            return righe == null ? 5 : righe;
-        }
-
-        public int puntiBaseOrDefault() {
-            return puntiBase == null ? 200 : puntiBase;
-        }
     }
 
     public record UpdateTabelloneRequest(

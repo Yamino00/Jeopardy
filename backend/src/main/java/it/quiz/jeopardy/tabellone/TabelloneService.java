@@ -15,6 +15,7 @@ import it.quiz.jeopardy.tabellone.TabelloneDtos.TabelloneSintesiDto;
 import it.quiz.jeopardy.tabellone.TabelloneDtos.UpdateTabelloneRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -45,19 +46,32 @@ public class TabelloneService {
     private final DomandaRepository domandaRepository;
     private final GenerationService generationService;
     private final CodeGenerator codeGenerator;
+    private final short righeDefault;
+    private final int puntiBaseDefault;
+    private final String lingua;
+    private final String placeholderTesto;
 
     public TabelloneService(TabelloneRepository tabelloneRepository,
                             CellaRepository cellaRepository,
                             ArgomentoRepository argomentoRepository,
                             DomandaRepository domandaRepository,
                             GenerationService generationService,
-                            CodeGenerator codeGenerator) {
+                            CodeGenerator codeGenerator,
+                            @Value("${app.tabellone.righe-default:5}") short righeDefault,
+                            @Value("${app.tabellone.punti-base-default:200}") int puntiBaseDefault,
+                            @Value("${app.lingua:it}") String lingua,
+                            @Value("${app.tabellone.placeholder-testo:Domanda da completare}")
+                            String placeholderTesto) {
         this.tabelloneRepository = tabelloneRepository;
         this.cellaRepository = cellaRepository;
         this.argomentoRepository = argomentoRepository;
         this.domandaRepository = domandaRepository;
         this.generationService = generationService;
         this.codeGenerator = codeGenerator;
+        this.righeDefault = righeDefault;
+        this.puntiBaseDefault = puntiBaseDefault;
+        this.lingua = lingua;
+        this.placeholderTesto = placeholderTesto;
     }
 
     @Transactional
@@ -70,8 +84,8 @@ public class TabelloneService {
         Tabellone tabellone = new Tabellone();
         tabellone.setTitolo(request.titolo().strip());
         tabellone.setClientCreatore(clientId);
-        tabellone.setRighe(request.righeOrDefault());
-        tabellone.setPuntiBase(request.puntiBaseOrDefault());
+        tabellone.setRighe(request.righe() == null ? righeDefault : request.righe());
+        tabellone.setPuntiBase(request.puntiBase() == null ? puntiBaseDefault : request.puntiBase());
         tabellone.setCodicePubblico(uniquePublicCode());
         tabellone.setCodiceModifica(codeGenerator.editCode());
 
@@ -118,7 +132,7 @@ public class TabelloneService {
                     // placeholder instead of failing the whole board
                     log.warn("Cella senza domanda per argomento {} difficolta {}: placeholder",
                             categoria.getNomeDisplay(), band.getKey());
-                    cella.setTestoOverride("Domanda da completare");
+                    cella.setTestoOverride(placeholderTesto);
                     cella.setRispostaOverride("");
                 }
                 categoria.addCella(cella);
@@ -136,7 +150,7 @@ public class TabelloneService {
 
     private Argomento findOrCreateArgomento(String nome) {
         String slug = Normalizer.toCanonical(nome).replace(' ', '-');
-        return argomentoRepository.findBySlugAndLingua(slug, "it")
+        return argomentoRepository.findBySlugAndLingua(slug, lingua)
                 .orElseGet(() -> argomentoRepository.save(new Argomento(nome, slug)));
     }
 

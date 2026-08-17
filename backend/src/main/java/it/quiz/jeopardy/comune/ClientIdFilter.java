@@ -5,6 +5,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,15 +28,15 @@ public class ClientIdFilter extends OncePerRequestFilter {
 
     private static final String HEADER_NAME = "X-Client-Id";
 
-    /** Paths that do not require X-Client-Id. */
-    private static final Set<String> PUBLIC_PATHS = Set.of(
-            "/api/salute"
-    );
-
     private final ObjectMapper objectMapper;
 
-    public ClientIdFilter(ObjectMapper objectMapper) {
+    /** Paths that do not require X-Client-Id, configurable via app.percorsi-pubblici. */
+    private final Set<String> publicPaths;
+
+    public ClientIdFilter(ObjectMapper objectMapper,
+                          @Value("${app.percorsi-pubblici:/api/salute}") List<String> publicPaths) {
         this.objectMapper = objectMapper;
+        this.publicPaths = Set.copyOf(publicPaths);
     }
 
     @Override
@@ -45,7 +47,7 @@ public class ClientIdFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI();
 
-        if (PUBLIC_PATHS.contains(path)) {
+        if (publicPaths.contains(path)) {
             filterChain.doFilter(request, response);
             return;
         }

@@ -41,9 +41,6 @@ public class GenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(GenerationService.class);
 
-    /** Extra questions asked on top of the missing count, to absorb rejects. */
-    private static final int OVERPROVISION = 2;
-
     private final ArgomentoRepository argomentoRepository;
     private final DomandaRepository domandaRepository;
     private final DeduplicationService deduplicationService;
@@ -53,6 +50,9 @@ public class GenerationService {
     private final BigDecimal costoPer1kInput;
     private final BigDecimal costoPer1kOutput;
 
+    /** Extra questions asked on top of the missing count, to absorb rejects. */
+    private final int overprovisioning;
+
     public GenerationService(ArgomentoRepository argomentoRepository,
                              DomandaRepository domandaRepository,
                              DeduplicationService deduplicationService,
@@ -60,7 +60,8 @@ public class GenerationService {
                              QuotaService quotaService,
                              GenerazioneRepository generazioneRepository,
                              @Value("${app.ia.costo-per-1k-input:0}") BigDecimal costoPer1kInput,
-                             @Value("${app.ia.costo-per-1k-output:0}") BigDecimal costoPer1kOutput) {
+                             @Value("${app.ia.costo-per-1k-output:0}") BigDecimal costoPer1kOutput,
+                             @Value("${app.ia.overprovisioning:2}") int overprovisioning) {
         this.argomentoRepository = argomentoRepository;
         this.domandaRepository = domandaRepository;
         this.deduplicationService = deduplicationService;
@@ -69,6 +70,7 @@ public class GenerationService {
         this.generazioneRepository = generazioneRepository;
         this.costoPer1kInput = costoPer1kInput;
         this.costoPer1kOutput = costoPer1kOutput;
+        this.overprovisioning = overprovisioning;
     }
 
     @Transactional
@@ -90,7 +92,7 @@ public class GenerationService {
         List<String> blocklist = domandaRepository.findEntitaCanonicheByArgomento(argomentoId);
         GenerationOutcome outcome = questionGenerator.generate(new GenerationRequest(
                 argomento.getNome(), sottoArgomento, difficolta,
-                mancanti + OVERPROVISION, blocklist));
+                mancanti + overprovisioning, blocklist));
 
         List<CandidateQuestion> candidati = validateAndNormalize(outcome, sottoArgomento, difficolta);
         DeduplicationResult dedup = deduplicationService.deduplicate(argomentoId, candidati);
