@@ -1,1 +1,0 @@
--- Inserire qui lo schema SQL applicativo.
