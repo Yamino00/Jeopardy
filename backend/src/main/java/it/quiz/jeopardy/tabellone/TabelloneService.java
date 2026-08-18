@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -102,42 +102,49 @@ public class TabelloneService {
         return TabelloneDto.from(tabelloneRepository.save(tabellone), true);
     }
 
+    /**
+     * Riempie tutte le celle della categoria con UNA sola richiesta di
+     * generazione. I free tier limitano i token al minuto: una chiamata per
+     * fascia di difficolta' esauriva il budget a meta' del primo tabellone.
+     */
     private void fillCategoria(UUID clientId, Tabellone tabellone, Categoria categoria) {
-        // Group rows by difficulty band so each band costs at most one LLM call
-        Map<Short, List<Short>> rowsByDifficulty = new HashMap<>();
+        Map<Short, List<Short>> righePerDifficolta = new LinkedHashMap<>();
         for (short riga = 1; riga <= tabellone.getRighe(); riga++) {
-            rowsByDifficulty
-                    .computeIfAbsent(difficultyForRow(riga, tabellone.getRighe()), k -> new java.util.ArrayList<>())
+            righePerDifficolta
+                    .computeIfAbsent(difficultyForRow(riga, tabellone.getRighe()),
+                            k -> new ArrayList<>())
                     .add(riga);
         }
 
-        for (Map.Entry<Short, List<Short>> band : rowsByDifficulty.entrySet()) {
-            List<Short> righe = band.getValue();
-            GenerationResultDto generated = generationService.generate(
-                    clientId, categoria.getArgomento().getId(), null,
-                    band.getKey(), righe.size());
+        Map<Short, Integer> richieste = new LinkedHashMap<>();
+        righePerDifficolta.forEach((difficolta, righe) -> richieste.put(difficolta, righe.size()));
 
+        GenerationService.Esito esito = generationService.generaPerFasce(
+                clientId, categoria.getArgomento().getId(), null, richieste);
+
+        righePerDifficolta.forEach((difficolta, righe) -> {
+            List<Domanda> domande = esito.perDifficolta()
+                    .getOrDefault(difficolta, List.of());
             for (int i = 0; i < righe.size(); i++) {
                 short riga = righe.get(i);
                 Cella cella = new Cella();
                 cella.setRiga(riga);
                 cella.setValore(tabellone.getPuntiBase() * riga);
-                if (i < generated.domande().size()) {
-                    Domanda domanda = domandaRepository
-                            .findById(generated.domande().get(i).id()).orElseThrow();
+                if (i < domande.size()) {
+                    Domanda domanda = domande.get(i);
                     domanda.setVolteUsata(domanda.getVolteUsata() + 1);
                     cella.setDomanda(domanda);
                 } else {
                     // Not enough questions survived dedup: leave an editable
                     // placeholder instead of failing the whole board
                     log.warn("Cella senza domanda per argomento {} difficolta {}: placeholder",
-                            categoria.getNomeDisplay(), band.getKey());
+                            categoria.getNomeDisplay(), difficolta);
                     cella.setTestoOverride(placeholderTesto);
                     cella.setRispostaOverride("");
                 }
                 categoria.addCella(cella);
             }
-        }
+        });
     }
 
     /** Linear map of row index onto the 1..5 difficulty scale. */

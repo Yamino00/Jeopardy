@@ -18,14 +18,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RoutingQuestionGeneratorTest {
 
     private static final GenerationRequest RICHIESTA =
-            new GenerationRequest("Storia", null, (short) 3, 3, List.of());
+            GenerationRequest.singola("Storia", null, (short) 3, 3, List.of());
+
+    /** Un solo giro e nessuna attesa: i test non devono dormire. */
+    private static RoutingQuestionGenerator router(List<LlmProvider> providers) {
+        return new RoutingQuestionGenerator(providers, 1, 0);
+    }
 
     @Test
     @DisplayName("Le chiamate si alternano fra i provider configurati")
     void spreadsCallsAcrossProviders() {
         FakeProvider a = new FakeProvider("a", true);
         FakeProvider b = new FakeProvider("b", true);
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(List.of(a, b));
+        RoutingQuestionGenerator router = router(List.of(a, b));
 
         for (int i = 0; i < 4; i++) {
             router.generate(RICHIESTA);
@@ -40,7 +45,7 @@ class RoutingQuestionGeneratorTest {
     void failsOverToTheOtherProvider() {
         FakeProvider rotto = new FakeProvider("rotto", true).cheFallisce();
         FakeProvider sano = new FakeProvider("sano", true);
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(List.of(rotto, sano));
+        RoutingQuestionGenerator router = router(List.of(rotto, sano));
 
         GenerationOutcome outcome = router.generate(RICHIESTA);
 
@@ -55,7 +60,7 @@ class RoutingQuestionGeneratorTest {
     void emptyAnswerTriggersFailover() {
         FakeProvider vuoto = new FakeProvider("vuoto", true).cheRestituisceVuoto();
         FakeProvider sano = new FakeProvider("sano", true);
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(List.of(vuoto, sano));
+        RoutingQuestionGenerator router = router(List.of(vuoto, sano));
 
         assertThat(router.generate(RICHIESTA).modello()).isEqualTo("sano");
     }
@@ -65,7 +70,7 @@ class RoutingQuestionGeneratorTest {
     void skipsUnconfiguredProviders() {
         FakeProvider senzaChiave = new FakeProvider("senza-chiave", false);
         FakeProvider sano = new FakeProvider("sano", true);
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(List.of(senzaChiave, sano));
+        RoutingQuestionGenerator router = router(List.of(senzaChiave, sano));
 
         router.generate(RICHIESTA);
         router.generate(RICHIESTA);
@@ -77,7 +82,7 @@ class RoutingQuestionGeneratorTest {
     @Test
     @DisplayName("Nessun provider configurato -> 503 con messaggio esplicito")
     void noProviderConfigured_isExplicit() {
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(
+        RoutingQuestionGenerator router = router(
                 List.of(new FakeProvider("a", false)));
 
         assertThatThrownBy(() -> router.generate(RICHIESTA))
@@ -88,12 +93,24 @@ class RoutingQuestionGeneratorTest {
     @Test
     @DisplayName("Se falliscono tutti, l'errore dell'ultimo arriva al chiamante")
     void allProvidersFailing_rethrows() {
-        RoutingQuestionGenerator router = new RoutingQuestionGenerator(List.of(
+        RoutingQuestionGenerator router = router(List.of(
                 new FakeProvider("a", true).cheFallisce(),
                 new FakeProvider("b", true).cheFallisce()));
 
         assertThatThrownBy(() -> router.generate(RICHIESTA))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("Con piu tentativi il provider viene riprovato dopo l'attesa")
+    void retriesAfterRateLimit() {
+        FakeProvider provider = new FakeProvider("a", true).cheFallisce();
+        // 2 giri, attesa 0: verifica il riprovare senza rallentare il test
+        var router = new RoutingQuestionGenerator(List.of(provider), 2, 0);
+
+        assertThatThrownBy(() -> router.generate(RICHIESTA))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(provider.chiamate()).isEqualTo(2);
     }
 
     private static final class FakeProvider implements LlmProvider {
