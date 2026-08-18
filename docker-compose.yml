@@ -8,7 +8,10 @@ services:
       POSTGRES_USER: jeopardy
       POSTGRES_PASSWORD: jeopardy
     ports:
-      - "5432:5432"
+      # host:container - 5433 sull'host perche' la 5432 e' spesso occupata
+      # da un'installazione nativa di Postgres su Windows. Dentro alla rete
+      # Docker, tra i container, resta sempre 5432 (vedi DB_URL sotto)
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,8 +31,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/jeopardy
       DB_USERNAME: jeopardy
       DB_PASSWORD: jeopardy
-      # Facoltativa: senza chiave la generazione IA risponde 503,
-      # il resto dell'app funziona
+      # Letta dal file .env (gitignored) o dall'ambiente: la chiave non va
+      # mai scritta qui. Senza chiave la generazione IA risponde 503 e il
+      # resto dell'app funziona
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8080:8080"

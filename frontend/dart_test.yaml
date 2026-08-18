@@ -1,0 +1,6 @@
+# I test marcati e2e chiamano il backend reale (docker compose up -d):
+# saltati nella suite di default, si lanciano esplicitamente con
+#   flutter test --tags e2e --run-skipped
+tags:
+  e2e:
+    skip: "Richiede il backend: flutter test --tags e2e --run-skipped"

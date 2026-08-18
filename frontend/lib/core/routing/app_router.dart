@@ -1,25 +1,43 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/generazione/generazione_placeholder_page.dart';
-import '../../features/partita/partita_placeholder_page.dart';
-import '../../features/tabellone/tabellone_placeholder_page.dart';
+import '../../features/creazione/creazione_page.dart';
+import '../../features/home/home_page.dart';
+import '../../features/partita/partita_page.dart';
+import '../../features/partita/riepilogo_page.dart';
+import '../../features/tabellone/tabellone_page.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: '/tabellone',
+    initialLocation: '/',
     routes: [
       GoRoute(
-        path: '/tabellone',
-        builder: (context, state) => const TabellonePlaceholderPage(),
+        path: '/',
+        builder: (context, state) => const HomePage(),
       ),
       GoRoute(
-        path: '/partita',
-        builder: (context, state) => const PartitaPlaceholderPage(),
+        path: '/crea',
+        builder: (context, state) => const CreazionePage(),
       ),
       GoRoute(
-        path: '/generazione',
-        builder: (context, state) => const GenerazionePlaceholderPage(),
+        path: '/tabellone/:codice',
+        builder: (context, state) => TabellonePage(
+          codice: state.pathParameters['codice']!,
+          // Passato solo subito dopo la creazione, per mostrarlo una volta
+          codiceModifica: state.uri.queryParameters['modifica'],
+        ),
+      ),
+      GoRoute(
+        path: '/partita/:id',
+        builder: (context, state) => PartitaPage(
+          partitaId: int.parse(state.pathParameters['id']!),
+        ),
+      ),
+      GoRoute(
+        path: '/partita/:id/riepilogo',
+        builder: (context, state) => RiepilogoPage(
+          partitaId: int.parse(state.pathParameters['id']!),
+        ),
       ),
     ],
   );

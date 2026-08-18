@@ -15,6 +15,9 @@ spring:
     property-naming-strategy: SNAKE_CASE
 
 app:
+  # Origin ammesse per le chiamate CORS dal client web (lista separata da virgole)
+  cors:
+    allowed-origins: "*"
   # Lingua di default per argomenti e domande
   lingua: it
   # Percorsi esclusi dall'obbligo di header X-Client-Id (lista separata da virgole)
@@ -36,7 +39,7 @@ app:
     gemini:
       endpoint: https://generativelanguage.googleapis.com/v1beta
       api-key: ${GEMINI_API_KEY:}
-      modello: gemini-2.0-flash
+      modello: gemini-3.5-flash
       temperature: 0.9
   tabellone:
     righe-default: 5
@@ -47,6 +50,6 @@ app:
     placeholder-testo: Domanda da completare
   partita:
     # Giorni dopo i quali una partita non conclusa scade
-    scadenza-giorni: 30
+    scadenza-giorni: 1
     # Cron del job di pulizia delle partite scadute
     pulizia-cron: "0 0 4 * * *"
