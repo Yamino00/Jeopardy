@@ -33,13 +33,27 @@ app:
     quota-giornaliera: 20
     # Domande extra chieste all'LLM oltre alle mancanti, per assorbire gli scarti
     overprovisioning: 2
+    # Giri completi sui provider prima di arrendersi
+    tentativi: 2
+    # I limiti dei free tier sono al minuto: aspettare qualche secondo basta
+    attesa-dopo-limite-secondi: 12
     # Costo stimato per 1000 token (0 sul free tier)
     costo-per-1k-input: 0
     costo-per-1k-output: 0
+    # Le chiamate sono distribuite a turno fra i provider configurati, con
+    # fallback sull'altro in caso di errore: creare un tabellone fa molte
+    # chiamate di fila e un solo free tier non regge
     gemini:
       endpoint: https://generativelanguage.googleapis.com/v1beta
       api-key: ${GEMINI_API_KEY:}
       modello: gemini-3.5-flash
+      temperature: 0.9
+      # Tetto sui token di risposta: senza, un JSON troncato non e' parsabile
+      max-output-tokens: 4096
+    groq:
+      endpoint: https://api.groq.com/openai/v1
+      api-key: ${GROQ_API_KEY:}
+      modello: openai/gpt-oss-120b
       temperature: 0.9
   tabellone:
     righe-default: 5

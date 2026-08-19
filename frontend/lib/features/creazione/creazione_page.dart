@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/animazioni.dart';
 import '../../data/providers.dart';
 
 /// Board creation: title, topic chips, rows. During generation the wait is
@@ -95,14 +97,23 @@ class _CreazionePageState extends ConsumerState<CreazionePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nuovo tabellone'),
-        leading: BackButton(onPressed: () => context.go('/')),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: _generating ? _buildProgress() : _buildForm(),
+      body: DecoratedBox(
+        decoration: sfondoApp,
+        child: Column(
+          children: [
+            AppBar(
+              title: const Text('Nuovo tabellone'),
+              leading: BackButton(onPressed: () => context.go('/')),
+            ),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: _generating ? _buildProgress() : _buildForm(),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -196,14 +207,31 @@ class _CreazionePageState extends ConsumerState<CreazionePage> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
-        FilledButton.icon(
-          key: const Key('genera-tabellone'),
-          onPressed: _crea,
-          icon: const Icon(Icons.auto_awesome),
-          style: FilledButton.styleFrom(
+        PremibileAnimato(
+          onTap: _crea,
+          child: Container(
+            key: const Key('genera-tabellone'),
             padding: const EdgeInsets.symmetric(vertical: 18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [jeopardyGold, Color(0xFFFF9F1C)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: bagliore(jeopardyGold, intensita: 0.32),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.auto_awesome_rounded, color: Colors.black87),
+                SizedBox(width: 10),
+                Text('Genera il tabellone',
+                    style: TextStyle(
+                        color: Colors.black87,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800)),
+              ],
+            ),
           ),
-          label: const Text('Genera il tabellone'),
         ),
       ],
     );
@@ -230,23 +258,84 @@ class _CreazionePageState extends ConsumerState<CreazionePage> {
           ),
           const SizedBox(height: 24),
           for (var i = 0; i < _argomenti.length; i++)
-            ListTile(
-              leading: i < _categoriaInCorso
-                  ? const Icon(Icons.check_circle, color: Colors.green)
-                  : i == _categoriaInCorso
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 3),
-                        )
-                      : const Icon(Icons.hourglass_empty),
-              title: Text(_argomenti[i]),
-              subtitle: Text(i < _categoriaInCorso
-                  ? 'Pronta'
-                  : i == _categoriaInCorso
-                      ? 'Cerco in banca e genero le domande mancanti...'
-                      : 'In attesa'),
+            _RigaAvanzamento(
+              nome: _argomenti[i],
+              fatta: i < _categoriaInCorso,
+              inCorso: i == _categoriaInCorso,
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Una categoria nella schermata di attesa. Lo stato è leggibile a colpo
+/// d'occhio dal colore del bordo, non solo dall'icona.
+class _RigaAvanzamento extends StatelessWidget {
+  const _RigaAvanzamento({
+    required this.nome,
+    required this.fatta,
+    required this.inCorso,
+  });
+
+  final String nome;
+  final bool fatta;
+  final bool inCorso;
+
+  @override
+  Widget build(BuildContext context) {
+    final colore = fatta
+        ? const Color(0xFF4ADE80)
+        : inCorso
+            ? jeopardyGold
+            : Colors.white24;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 320),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: inCorso ? 0.07 : 0.03),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colore.withValues(alpha: inCorso ? 0.6 : 0.25)),
+        boxShadow: inCorso ? bagliore(jeopardyGold, intensita: 0.18) : null,
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: fatta
+                ? const Icon(Icons.check_circle_rounded,
+                    color: Color(0xFF4ADE80), size: 22)
+                : inCorso
+                    ? const CircularProgressIndicator(
+                        strokeWidth: 2.5, color: jeopardyGold)
+                    : const Icon(Icons.hourglass_empty_rounded,
+                        color: Colors.white24, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(nome,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                  fatta
+                      ? 'Pronta'
+                      : inCorso
+                          ? 'Cerco in banca e genero le mancanti...'
+                          : 'In attesa',
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

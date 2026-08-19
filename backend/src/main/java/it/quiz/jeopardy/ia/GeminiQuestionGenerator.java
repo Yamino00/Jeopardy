@@ -18,12 +18,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Real generator backed by the Gemini REST API (free tier). The API key comes
- * from configuration; when it is missing the bean still exists (so the
- * application can start without it) but any call fails fast.
+ * Provider backed by the Gemini REST API (free tier).
+ *
+ * <p>Thinking is disabled on purpose: the 3.x models otherwise burn ~2000
+ * "thought" tokens per call, which makes every cell take ~20s and can eat the
+ * output budget until the JSON comes back truncated. With
+ * {@code thinkingBudget: 0} the same request answers in ~4s.
  */
 @Component
-public class GeminiQuestionGenerator implements QuestionGenerator {
+public class GeminiQuestionGenerator implements LlmProvider {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiQuestionGenerator.class);
 
@@ -32,6 +35,7 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
     private final String apiKey;
     private final String modello;
     private final double temperature;
+    private final int maxOutputTokens;
 
     /** Built lazily: the JDK HttpClient opens sockets already at build time. */
     private volatile RestClient restClient;
@@ -40,12 +44,24 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
                                    @Value("${app.ia.gemini.endpoint}") String endpoint,
                                    @Value("${app.ia.gemini.api-key:}") String apiKey,
                                    @Value("${app.ia.gemini.modello}") String modello,
-                                   @Value("${app.ia.gemini.temperature:0.9}") double temperature) {
+                                   @Value("${app.ia.gemini.temperature:0.9}") double temperature,
+                                   @Value("${app.ia.gemini.max-output-tokens:4096}") int maxOutputTokens) {
         this.objectMapper = objectMapper;
         this.endpoint = endpoint;
         this.apiKey = apiKey;
         this.modello = modello;
         this.temperature = temperature;
+        this.maxOutputTokens = maxOutputTokens;
+    }
+
+    @Override
+    public String nome() {
+        return "gemini/" + modello;
+    }
+
+    @Override
+    public boolean configurato() {
+        return apiKey != null && !apiKey.isBlank();
     }
 
     private RestClient restClient() {
@@ -63,20 +79,19 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
 
     @Override
     public GenerationOutcome generate(GenerationRequest request) {
-        if (apiKey == null || apiKey.isBlank()) {
-            // 503 esplicito: senza chiave il resto dell'app resta usabile e chi
-            // testa capisce subito cosa manca
+        if (!configurato()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Generazione IA non configurata: impostare GEMINI_API_KEY "
-                            + "(app.ia.gemini.api-key)");
+                    "Gemini non configurato: impostare GEMINI_API_KEY");
         }
 
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
-                        "parts", List.of(Map.of("text", buildPrompt(request))))),
+                        "parts", List.of(Map.of("text", PromptBuilder.build(request))))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
-                        "temperature", temperature));
+                        "temperature", temperature,
+                        "maxOutputTokens", maxOutputTokens,
+                        "thinkingConfig", Map.of("thinkingBudget", 0)));
 
         String rawResponse;
         try {
@@ -123,43 +138,14 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
         };
     }
 
-    private String buildPrompt(GenerationRequest request) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Genera esattamente ").append(request.numero())
-                .append(" domande di quiz in italiano, stile Jeopardy, sull'argomento \"")
-                .append(request.argomento()).append('"');
-        if (request.sottoArgomento() != null && !request.sottoArgomento().isBlank()) {
-            sb.append(", sotto-argomento \"").append(request.sottoArgomento()).append('"');
-        }
-        sb.append(", con difficolta ").append(request.difficolta())
-                .append(" su una scala da 1 (facile) a 5 (difficile).\n\n")
-                .append("Rispondi SOLO con JSON valido, con questo schema esatto:\n")
-                .append("{\"domande\":[{\"testo\":\"...\",\"risposta\":\"...\",")
-                .append("\"entita_canonica\":\"...\",\"sotto_argomento\":\"...\",\"difficolta\":")
-                .append(request.difficolta()).append("}]}\n\n")
-                .append("Regole:\n")
-                // Senza questo vincolo il modello risponde "Chi e Annibale?" e la
-                // entita_canonica calcolata in Java diventa "chi e annibale",
-                // rendendo inefficace la deduplicazione
-                .append("- \"risposta\" deve contenere SOLO il nome dell'entita, ")
-                .append("mai una frase interrogativa: \"Annibale\", non \"Chi e Annibale?\".\n")
-                .append("- \"testo\" e la domanda o l'indizio mostrato ai giocatori.\n")
-                .append("- \"entita_canonica\" e la risposta normalizzata: minuscola, senza accenti, ")
-                .append("senza articoli iniziali, senza contenuto fra parentesi.\n")
-                .append("- Ogni domanda deve avere una risposta diversa dalle altre.\n");
-        if (!request.blocklist().isEmpty()) {
-            sb.append("- NON generare domande la cui risposta normalizzata sia una di queste ")
-                    .append("(gia presenti in banca): ")
-                    .append(String.join(", ", request.blocklist()))
-                    .append('\n');
-        }
-        return sb.toString();
-    }
-
     private GenerationOutcome parseResponse(String rawResponse) {
+        String text = "";
+        String finishReason = "?";
         try {
             JsonNode root = objectMapper.readTree(rawResponse);
-            JsonNode payload = objectMapper.readTree(extractText(root));
+            finishReason = root.path("candidates").path(0).path("finishReason").asText("?");
+            text = extractText(root);
+            JsonNode payload = objectMapper.readTree(text);
 
             List<GeneratedQuestion> domande = new ArrayList<>();
             for (JsonNode nodo : payload.path("domande")) {
@@ -177,11 +163,22 @@ public class GeminiQuestionGenerator implements QuestionGenerator {
             Integer tokenOutput = usage.hasNonNull("candidatesTokenCount")
                     ? usage.get("candidatesTokenCount").asInt() : null;
 
-            return new GenerationOutcome(domande, modello, tokenInput, tokenOutput);
+            return new GenerationOutcome(domande, nome(), tokenInput, tokenOutput);
         } catch (Exception e) {
-            log.warn("Risposta Gemini non conforme allo schema JSON atteso", e);
-            return new GenerationOutcome(List.of(), modello, null, null);
+            // Il motivo piu' comune e' MAX_TOKENS con JSON troncato: senza
+            // finishReason e un estratto del testo l'errore e' indiagnosticabile
+            log.warn("Risposta Gemini non conforme (finishReason={}, {} caratteri): {}",
+                    finishReason, text.length(), estratto(text), e);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Risposta di Gemini non interpretabile (finishReason=" + finishReason + ")");
         }
+    }
+
+    private static String estratto(String text) {
+        if (text == null || text.isEmpty()) {
+            return "(vuoto)";
+        }
+        return text.substring(0, Math.min(300, text.length()));
     }
 
     /**

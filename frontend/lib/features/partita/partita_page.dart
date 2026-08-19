@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/animazioni.dart';
 import '../../data/providers.dart';
 import '../../models/partita.dart';
 import '../../models/tabellone.dart';
@@ -53,34 +54,41 @@ class _PartitaBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(tabellone.titolo),
-        leading: BackButton(onPressed: () => context.go('/')),
-        actions: [
-          TextButton.icon(
-            key: const Key('concludi-partita'),
-            onPressed:
-                partita.inCorso ? () => _concludi(context, ref) : null,
-            icon: const Icon(Icons.flag),
-            label: const Text('Concludi'),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: GrigliaTabellone(
-              tabellone: tabellone,
-              builderCella: (cella) => _CellaGioco(
-                cella: cella,
-                giocata: partita.cellaGiaGiocata(cella.id),
-                abilitata: partita.inCorso,
-                onTap: () => _apriCella(context, ref, cella),
+      body: DecoratedBox(
+        decoration: sfondoApp,
+        child: Column(
+          children: [
+            AppBar(
+              title: Text(tabellone.titolo),
+              leading: BackButton(onPressed: () => context.go('/')),
+              actions: [
+                TextButton.icon(
+                  key: const Key('concludi-partita'),
+                  onPressed:
+                      partita.inCorso ? () => _concludi(context, ref) : null,
+                  icon: const Icon(Icons.flag_rounded, size: 18),
+                  label: const Text('Concludi'),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            Expanded(
+              child: GrigliaTabellone(
+                tabellone: tabellone,
+                builderCella: (cella, indice) => ComparsaAnimata(
+                  indice: indice,
+                  child: _CellaGioco(
+                    cella: cella,
+                    giocata: partita.cellaGiaGiocata(cella.id),
+                    abilitata: partita.inCorso,
+                    onTap: () => _apriCella(context, ref, cella),
+                  ),
+                ),
               ),
             ),
-          ),
-          BarraSquadre(partita: partita),
-        ],
+            BarraSquadre(partita: partita),
+          ],
+        ),
       ),
     );
   }
@@ -105,6 +113,8 @@ class _PartitaBody extends ConsumerWidget {
     final conferma = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: sfondoElevato,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Concludere la partita?'),
         content: const Text('I punteggi diventeranno definitivi.'),
         actions: [
@@ -141,20 +151,32 @@ class _CellaGioco extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: giocata ? const Color(0xFF10173F) : jeopardyBlue,
-      child: InkWell(
+    final attiva = !giocata && abilitata;
+    return PremibileAnimato(
+      onTap: attiva ? onTap : null,
+      child: AnimatedContainer(
         key: Key('cella-${cella.id}'),
-        onTap: giocata || !abilitata ? null : onTap,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          gradient: giocata ? null : gradienteCella,
+          color: giocata ? Colors.white.withValues(alpha: 0.03) : null,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: giocata
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.white.withValues(alpha: 0.08),
+          ),
+        ),
         child: Center(
           child: giocata
-              ? const Icon(Icons.check, color: Colors.white24)
+              ? const Icon(Icons.check_rounded, color: Colors.white24, size: 26)
               : Text(
                   '${cella.valore}',
                   style: const TextStyle(
                     color: jeopardyGold,
                     fontSize: 26,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
         ),
@@ -163,8 +185,8 @@ class _CellaGioco extends StatelessWidget {
   }
 }
 
-/// Fullscreen question: first tap shows the question, "Mostra risposta"
-/// reveals the answer, then points can be assigned or the cell passed.
+/// Fullscreen question: the answer is hidden until "Mostra risposta",
+/// then points can be assigned or the cell passed.
 class CellaDialog extends ConsumerStatefulWidget {
   const CellaDialog({
     super.key,
@@ -211,105 +233,159 @@ class _CellaDialogState extends ConsumerState<CellaDialog> {
   Widget build(BuildContext context) {
     final valore = widget.cella.valore;
     return Dialog.fullscreen(
-      backgroundColor: jeopardyBlue,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Text(
-                    '${widget.nomeCategoria.toUpperCase()} - $valore',
-                    style: const TextStyle(
-                      color: jeopardyGold,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    key: const Key('chiudi-cella'),
-                    onPressed: _inviando
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: Colors.white),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        Text(
-                          widget.cella.testo ?? '',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w600,
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        if (_rispostaVisibile)
-                          Text(
-                            widget.cella.risposta ?? '',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: jeopardyGold,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (!_rispostaVisibile)
-                FilledButton.icon(
-                  key: const Key('mostra-risposta'),
-                  onPressed: () =>
-                      setState(() => _rispostaVisibile = true),
-                  icon: const Icon(Icons.visibility),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: jeopardyGold,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 32),
-                  ),
-                  label: const Text('Mostra risposta'),
-                )
-              else ...[
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
+      backgroundColor: Colors.transparent,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1B2A7B), Color(0xFF0C1236)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    for (final squadra in widget.squadre)
-                      _AssegnaPuntiChip(
-                        squadra: squadra,
-                        valore: valore,
-                        inviando: _inviando,
-                        onCorretta: () =>
-                            _gioca('corretta', valore, squadra.id),
-                        onErrata: () =>
-                            _gioca('errata', -valore, squadra.id),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: jeopardyGold.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
                       ),
+                      child: Text(
+                        '${widget.nomeCategoria.toUpperCase()} · $valore',
+                        style: const TextStyle(
+                          color: jeopardyGold,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      key: const Key('chiudi-cella'),
+                      onPressed:
+                          _inviando ? null : () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  key: const Key('passa-cella'),
-                  onPressed:
-                      _inviando ? null : () => _gioca('passata', 0, null),
-                  icon: const Icon(Icons.skip_next),
-                  label: const Text('Nessuno risponde: passa'),
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          Text(
+                            widget.cella.testo ?? '',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 30,
+                              fontWeight: FontWeight.w700,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 320),
+                            transitionBuilder: (child, anim) => FadeTransition(
+                              opacity: anim,
+                              child: SizeTransition(
+                                  sizeFactor: anim, child: child),
+                            ),
+                            child: _rispostaVisibile
+                                ? Container(
+                                    key: const ValueKey('risposta'),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 24, vertical: 16),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          jeopardyGold.withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                          color: jeopardyGold.withValues(
+                                              alpha: 0.5)),
+                                    ),
+                                    child: Text(
+                                      widget.cella.risposta ?? '',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: jeopardyGold,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
+                if (!_rispostaVisibile)
+                  PremibileAnimato(
+                    onTap: () => setState(() => _rispostaVisibile = true),
+                    child: Container(
+                      key: const Key('mostra-risposta'),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 34),
+                      decoration: BoxDecoration(
+                        color: jeopardyGold,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: bagliore(jeopardyGold, intensita: 0.35),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.visibility_rounded, color: Colors.black87),
+                          SizedBox(width: 10),
+                          Text('Mostra risposta',
+                              style: TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (var i = 0; i < widget.squadre.length; i++)
+                        ComparsaAnimata(
+                          indice: i,
+                          child: _AssegnaPuntiChip(
+                            squadra: widget.squadre[i],
+                            valore: valore,
+                            inviando: _inviando,
+                            onCorretta: () => _gioca(
+                                'corretta', valore, widget.squadre[i].id),
+                            onErrata: () => _gioca(
+                                'errata', -valore, widget.squadre[i].id),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  TextButton.icon(
+                    key: const Key('passa-cella'),
+                    onPressed:
+                        _inviando ? null : () => _gioca('passata', 0, null),
+                    icon: const Icon(Icons.skip_next_rounded),
+                    label: const Text('Nessuno risponde: passa'),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -334,34 +410,41 @@ class _AssegnaPuntiChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: const Color(0xFF14226B),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-                radius: 7,
-                backgroundColor: parseHexColor(squadra.colore)),
-            const SizedBox(width: 8),
-            Text(squadra.nome,
-                style: const TextStyle(color: Colors.white)),
-            const SizedBox(width: 8),
-            IconButton(
-              key: Key('corretta-${squadra.id}'),
-              tooltip: '+$valore',
-              onPressed: inviando ? null : onCorretta,
-              icon: const Icon(Icons.check_circle, color: Colors.green),
-            ),
-            IconButton(
-              key: Key('errata-${squadra.id}'),
-              tooltip: '-$valore',
-              onPressed: inviando ? null : onErrata,
-              icon: const Icon(Icons.cancel, color: Colors.redAccent),
-            ),
-          ],
-        ),
+    final colore = parseHexColor(squadra.colore);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: sfondoTenue(colore),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colore.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(color: colore, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(squadra.nome,
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 6),
+          IconButton(
+            key: Key('corretta-${squadra.id}'),
+            tooltip: '+$valore',
+            onPressed: inviando ? null : onCorretta,
+            icon: const Icon(Icons.check_circle_rounded,
+                color: Color(0xFF4ADE80)),
+          ),
+          IconButton(
+            key: Key('errata-${squadra.id}'),
+            tooltip: '-$valore',
+            onPressed: inviando ? null : onErrata,
+            icon: const Icon(Icons.cancel_rounded, color: Color(0xFFFF6B6B)),
+          ),
+        ],
       ),
     );
   }
@@ -378,19 +461,24 @@ class BarraSquadre extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(partitaProvider(partita.id).notifier);
 
-    return Material(
-      color: const Color(0xFF0A123F),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0E2E),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 88,
+          height: 92,
           child: Row(
             children: [
               Expanded(
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   children: [
                     for (final squadra in partita.squadreAttive)
                       _SquadraCard(
@@ -408,12 +496,10 @@ class BarraSquadre extends ConsumerWidget {
                 onPressed: partita.inCorso
                     ? () => _aggiungiSquadra(context, notifier)
                     : null,
-                icon: const Icon(Icons.group_add),
+                icon: const Icon(Icons.group_add_rounded),
               ),
-              IconButton(
-                key: const Key('annulla-evento'),
-                tooltip: 'Annulla ultima mossa',
-                onPressed: partita.inCorso
+              PremibileAnimato(
+                onTap: partita.inCorso
                     ? () async {
                         try {
                           await notifier.annulla();
@@ -425,9 +511,20 @@ class BarraSquadre extends ConsumerWidget {
                         }
                       }
                     : null,
-                icon: const Icon(Icons.undo, color: jeopardyGold),
+                child: Container(
+                  key: const Key('annulla-evento'),
+                  margin: const EdgeInsets.only(right: 10, left: 4),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: partita.inCorso
+                        ? jeopardyGold.withValues(alpha: 0.15)
+                        : Colors.white.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.undo_rounded,
+                      color: partita.inCorso ? jeopardyGold : Colors.white24),
+                ),
               ),
-              const SizedBox(width: 4),
             ],
           ),
         ),
@@ -441,6 +538,8 @@ class BarraSquadre extends ConsumerWidget {
     final nome = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: sfondoElevato,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Nuova squadra'),
         content: TextField(
           key: const Key('campo-nuova-squadra'),
@@ -476,6 +575,8 @@ class BarraSquadre extends ConsumerWidget {
     final azione = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: sfondoElevato,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Modifica ${squadra.nome}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -484,14 +585,14 @@ class BarraSquadre extends ConsumerWidget {
               controller: nomeController,
               decoration: const InputDecoration(labelText: 'Nome'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             TextField(
               key: const Key('campo-punteggio'),
               controller: punteggioController,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Punteggio',
-                helperText: 'Correzione manuale: finisce nel log eventi',
+                helperText: 'La correzione finisce nel log eventi',
               ),
             ),
           ],
@@ -499,8 +600,8 @@ class BarraSquadre extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop('rimuovi'),
-            child: const Text('Rimuovi squadra',
-                style: TextStyle(color: Colors.redAccent)),
+            child: const Text('Rimuovi',
+                style: TextStyle(color: Color(0xFFFF6B6B))),
           ),
           TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -542,53 +643,63 @@ class _SquadraCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: Key('squadra-${squadra.id}'),
+    final colore = parseHexColor(squadra.colore);
+    return PremibileAnimato(
       onLongPress: onLongPress,
-      child: Card(
-        color: inTurno ? jeopardyBlueLight : jeopardyBlue,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: inTurno
-              ? const BorderSide(color: jeopardyGold, width: 2)
-              : BorderSide.none,
+      child: AnimatedContainer(
+        key: Key('squadra-${squadra.id}'),
+        duration: const Duration(milliseconds: 260),
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          // Fondo sempre scuro, derivato dal colore squadra: il testo bianco
+          // resta leggibile anche con colori chiari come il giallo
+          color: sfondoTenue(colore),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: inTurno ? colore : colore.withValues(alpha: 0.35),
+            width: inTurno ? 2 : 1,
+          ),
+          boxShadow: inTurno ? bagliore(colore, intensita: 0.4) : null,
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          // scaleDown: la card non deve mai andare in overflow verticale,
-          // qualunque sia la scala testo del dispositivo
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-              Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircleAvatar(
-                      radius: 6,
-                      backgroundColor: parseHexColor(squadra.colore)),
-                  const SizedBox(width: 6),
-                  Text(squadra.nome,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600)),
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration:
+                        BoxDecoration(color: colore, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    squadra.nome,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 4),
-                Text(
-                  '${squadra.punteggio}',
-                  key: Key('punteggio-${squadra.id}'),
-                  style: const TextStyle(
-                    color: jeopardyGold,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
             ),
-          ),
+            const SizedBox(height: 2),
+            PunteggioAnimato(
+              key: Key('punteggio-${squadra.id}'),
+              valore: squadra.punteggio,
+              stile: const TextStyle(
+                color: jeopardyGold,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
         ),
       ),
     );

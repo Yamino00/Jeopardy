@@ -23,15 +23,20 @@ public class FakeQuestionGenerator implements QuestionGenerator {
             return queued.pop();
         }
         List<GeneratedQuestion> domande = new ArrayList<>();
-        for (int i = 0; i < request.numero(); i++) {
-            // Random identifiers keep trigram similarity between texts low
-            String unique = UUID.randomUUID().toString();
-            domande.add(new GeneratedQuestion(
-                    "Indovina il codice segreto " + unique + "?",
-                    "Codice " + unique,
-                    "codice " + unique,
-                    request.sottoArgomento(),
-                    request.difficolta()));
+        // Rispetta la distribuzione richiesta: il servizio smista le domande
+        // per difficolta', quindi un fake che le marca tutte uguali non
+        // eserciterebbe quel percorso
+        for (GenerationRequest.QuotaDifficolta quota : request.richieste()) {
+            for (int i = 0; i < quota.quantita(); i++) {
+                // Random identifiers keep trigram similarity between texts low
+                String unique = UUID.randomUUID().toString();
+                domande.add(new GeneratedQuestion(
+                        "Indovina il codice segreto " + unique + "?",
+                        "Codice " + unique,
+                        "codice " + unique,
+                        request.sottoArgomento(),
+                        quota.difficolta()));
+            }
         }
         return new GenerationOutcome(domande, "fake-model", 100, 200);
     }

@@ -78,12 +78,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // La cella giocata mostra il check ed e disabilitata, l'altra il valore
+    // La cella giocata mostra il segno di spunta al posto del valore,
+    // l'altra resta giocabile e mostra i suoi punti
     expect(find.text('200'), findsOneWidget);
-    expect(find.text('100'), findsAtLeastNWidgets(1));
-    final cellaGiocata =
-        tester.widget<InkWell>(find.byKey(const Key('cella-10')));
-    expect(cellaGiocata.onTap, isNull);
+    expect(find.byKey(const Key('cella-10')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('cella-10')),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsOneWidget,
+    );
 
     // La barra squadre mostra il punteggio
     expect(find.byKey(const Key('punteggio-1')), findsOneWidget);

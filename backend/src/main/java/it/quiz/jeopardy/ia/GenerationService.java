@@ -18,23 +18,28 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
  * Generation pipeline. Order matters, and the LLM is the last resort:
  * <ol>
- *   <li>count suitable questions in the bank not yet used by this client;
- *       if enough, NO LLM call: return those;</li>
- *   <li>otherwise consume quota (429 beyond the daily limit), build the
- *       single-cell prompt with the blocklist and ask for N+2 questions in one
- *       call, never retrying on rejection;</li>
- *   <li>validate each candidate, recompute {@code entita_canonica} in Java
- *       (the LLM's value is only logged when divergent);</li>
- *   <li>run the dedup cascade, insert survivors, record the audit row in
- *       {@code generazione}.</li>
+ *   <li>count suitable questions in the bank not yet used by this client;</li>
+ *   <li>if some are missing, consume quota and ask the LLM <b>once</b> for
+ *       everything that is missing across all the requested difficulties;</li>
+ *   <li>validate, recompute {@code entita_canonica} in Java, deduplicate,
+ *       insert the survivors and record the audit row.</li>
  * </ol>
+ *
+ * <p>Il punto 2 e' quello che tiene in piedi il free tier: una chiamata per
+ * fascia di difficolta' per categoria consumava ~18.000 token per un tabellone
+ * 2x5, contro gli 8.000 al minuto concessi da Groq.
  */
 @Service
 public class GenerationService {
@@ -73,52 +78,119 @@ public class GenerationService {
         this.overprovisioning = overprovisioning;
     }
 
+    /** Endpoint a grana fine: una sola difficolta'. */
     @Transactional
     public GenerationResultDto generate(UUID clientId, Long argomentoId,
                                         String sottoArgomento, short difficolta, int numero) {
+        Esito esito = generaPerFasce(clientId, argomentoId, sottoArgomento,
+                Map.of(difficolta, numero));
+        List<DomandaDto> domande = esito.perDifficolta().getOrDefault(difficolta, List.of())
+                .stream().map(DomandaDto::from).toList();
+        return new GenerationResultDto(domande, esito.riusate(), esito.nuove(),
+                esito.scartate(), esito.chiamataLlm());
+    }
+
+    /**
+     * Genera per piu' fasce di difficolta' con una sola chiamata all'LLM.
+     * Ritorna, per ogni difficolta' richiesta, le domande utilizzabili.
+     */
+    @Transactional
+    public Esito generaPerFasce(UUID clientId, Long argomentoId, String sottoArgomento,
+                                Map<Short, Integer> richieste) {
         Argomento argomento = argomentoRepository.findById(argomentoId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Argomento " + argomentoId + " non trovato"));
 
-        List<Domanda> disponibili = domandaRepository.findAvailableForClient(
-                argomentoId, sottoArgomento, difficolta, clientId, numero);
-        if (disponibili.size() >= numero) {
-            return toResult(disponibili, disponibili.size(), 0, 0, false);
+        // 1. Quel che la banca offre gia', fascia per fascia
+        Map<Short, List<Domanda>> disponibili = new LinkedHashMap<>();
+        Map<Short, Integer> mancanti = new LinkedHashMap<>();
+        int totaleRiusate = 0;
+
+        for (Map.Entry<Short, Integer> richiesta : richieste.entrySet()) {
+            short difficolta = richiesta.getKey();
+            int quantita = richiesta.getValue();
+            List<Domanda> dallaBanca = domandaRepository.findAvailableForClient(
+                    argomentoId, sottoArgomento, difficolta, clientId, quantita);
+            disponibili.put(difficolta, new ArrayList<>(dallaBanca));
+            totaleRiusate += dallaBanca.size();
+            if (dallaBanca.size() < quantita) {
+                mancanti.put(difficolta, quantita - dallaBanca.size());
+            }
         }
 
+        if (mancanti.isEmpty()) {
+            return new Esito(disponibili, totaleRiusate, 0, 0, false);
+        }
+
+        // 2. Una sola chiamata per tutto cio' che manca
         quotaService.consumeGeneration(clientId);
 
-        int mancanti = numero - disponibili.size();
+        List<GenerationRequest.QuotaDifficolta> quote = mancanti.entrySet().stream()
+                .map(e -> new GenerationRequest.QuotaDifficolta(e.getKey(), e.getValue()))
+                .toList();
+        // L'overprovisioning va sulla fascia piu' numerosa, non moltiplicato
+        // per ogni fascia: serve ad assorbire gli scarti, non a gonfiare
+        List<GenerationRequest.QuotaDifficolta> conRiserva = new ArrayList<>(quote);
+        if (!conRiserva.isEmpty()) {
+            GenerationRequest.QuotaDifficolta prima = conRiserva.get(0);
+            conRiserva.set(0, new GenerationRequest.QuotaDifficolta(
+                    prima.difficolta(), prima.quantita() + overprovisioning));
+        }
+
         List<String> blocklist = domandaRepository.findEntitaCanonicheByArgomento(argomentoId);
         GenerationOutcome outcome = questionGenerator.generate(new GenerationRequest(
-                argomento.getNome(), sottoArgomento, difficolta,
-                mancanti + overprovisioning, blocklist));
+                argomento.getNome(), sottoArgomento, conRiserva, blocklist));
 
-        List<CandidateQuestion> candidati = validateAndNormalize(outcome, sottoArgomento, difficolta);
+        // 3. Validazione + deduplicazione + inserimento
+        List<CandidateQuestion> candidati = validateAndNormalize(outcome, sottoArgomento);
         DeduplicationResult dedup = deduplicationService.deduplicate(argomentoId, candidati);
 
-        List<Domanda> inserite = new ArrayList<>();
+        Map<Short, Deque<Domanda>> nuovePerDifficolta = new HashMap<>();
+        int inserite = 0;
         for (DeduplicationResult.AcceptedCandidate accepted : dedup.accettate()) {
-            inserite.add(domandaRepository.save(
-                    toEntity(accepted, argomento, outcome.modello())));
+            Domanda salvata = domandaRepository.save(
+                    toEntity(accepted, argomento, outcome.modello()));
+            nuovePerDifficolta
+                    .computeIfAbsent(salvata.getDifficolta(), k -> new ArrayDeque<>())
+                    .add(salvata);
+            inserite++;
         }
 
         recordGenerazione(clientId, argomentoId, outcome, dedup.accettate().size());
 
-        List<Domanda> risultato = new ArrayList<>(disponibili);
-        for (Domanda inserita : inserite) {
-            if (risultato.size() >= numero) {
-                break;
+        // 4. Completa le fasce ancora scoperte, prima con la difficolta' esatta
+        // poi con qualunque altra: meglio una domanda di fascia vicina che una
+        // cella vuota
+        for (Map.Entry<Short, Integer> richiesta : richieste.entrySet()) {
+            short difficolta = richiesta.getKey();
+            List<Domanda> lista = disponibili.get(difficolta);
+            Deque<Domanda> esatte = nuovePerDifficolta.get(difficolta);
+            while (lista.size() < richiesta.getValue() && esatte != null && !esatte.isEmpty()) {
+                lista.add(esatte.poll());
             }
-            risultato.add(inserita);
+            while (lista.size() < richiesta.getValue()) {
+                Domanda ripiego = qualsiasiDisponibile(nuovePerDifficolta);
+                if (ripiego == null) {
+                    break;
+                }
+                lista.add(ripiego);
+            }
         }
-        return toResult(risultato, disponibili.size(), inserite.size(),
-                dedup.scartate().size(), true);
+
+        return new Esito(disponibili, totaleRiusate, inserite, dedup.scartate().size(), true);
+    }
+
+    private static Domanda qualsiasiDisponibile(Map<Short, Deque<Domanda>> per) {
+        for (Deque<Domanda> coda : per.values()) {
+            if (!coda.isEmpty()) {
+                return coda.poll();
+            }
+        }
+        return null;
     }
 
     private List<CandidateQuestion> validateAndNormalize(GenerationOutcome outcome,
-                                                         String sottoArgomento,
-                                                         short difficolta) {
+                                                         String sottoArgomento) {
         List<CandidateQuestion> candidati = new ArrayList<>();
         for (GeneratedQuestion generata : outcome.domande()) {
             if (generata.testo() == null || generata.testo().isBlank()
@@ -132,6 +204,9 @@ public class GenerationService {
                 log.info("Divergenza entita_canonica: LLM='{}' Java='{}' (risposta='{}')",
                         generata.entitaCanonica(), canonicaJava, generata.risposta());
             }
+            // La difficolta' la dichiara il modello: va riportata nella scala
+            // ammessa dal CHECK sul database
+            short difficolta = (short) Math.clamp(generata.difficolta(), 1, 5);
             candidati.add(new CandidateQuestion(
                     generata.testo().strip(),
                     generata.risposta().strip(),
@@ -178,10 +253,12 @@ public class GenerationService {
                 .divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
     }
 
-    private GenerationResultDto toResult(List<Domanda> domande, int riusate,
-                                         int nuove, int scartate, boolean chiamataLlm) {
-        return new GenerationResultDto(
-                domande.stream().map(DomandaDto::from).toList(),
-                riusate, nuove, scartate, chiamataLlm);
+    /** Domande per difficolta', piu' i contatori per l'interfaccia. */
+    public record Esito(
+            Map<Short, List<Domanda>> perDifficolta,
+            int riusate,
+            int nuove,
+            int scartate,
+            boolean chiamataLlm) {
     }
 }
