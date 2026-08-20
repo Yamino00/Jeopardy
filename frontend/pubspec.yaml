@@ -14,6 +14,10 @@ dependencies:
   go_router: ^14.2.7
   shared_preferences: ^2.3.2
   uuid: ^4.5.1
+  # Lo schermo non si deve spegnere durante una partita: le sessioni durano
+  # 20-40 minuti con lunghe pause di riflessione, e il timeout di sistema
+  # arriverebbe proprio mentre il gruppo pensa. Attivo solo in partita.
+  wakelock_plus: ^1.2.8
 
 dev_dependencies:
   flutter_test:
@@ -22,3 +26,23 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Due file variabili, 826KB in tutto, entrambi OFL 1.1 con la licenza
+  # accanto. Sono file e non un pacchetto: primo frame senza rete, e l'app
+  # funziona offline.
+  #
+  # Gli assi sono stati verificati sui file scaricati:
+  #   Archivo       wght 100-900, wdth 62-125  (default wght 600, wdth 100)
+  #   LibreFranklin wght 100-900              (default wght 100)
+  #
+  # I default di Archivo non sono quelli che serve a noi, quindi ogni stile
+  # display dichiara `fontVariations` esplicitamente in tipografia.dart: la
+  # mappatura implicita da `fontWeight` all'asse `wght` non e' affidabile fra
+  # le versioni dell'engine.
+  fonts:
+    - family: Archivo
+      fonts:
+        - asset: assets/fonts/Archivo[wdth,wght].ttf
+    - family: LibreFranklin
+      fonts:
+        - asset: assets/fonts/LibreFranklin[wght].ttf

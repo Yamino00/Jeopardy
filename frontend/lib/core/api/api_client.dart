@@ -1,30 +1,30 @@
 import 'package:dio/dio.dart';
 
 import '../storage/client_id_storage.dart';
+import 'errore_api.dart';
 
-/// Base URL of the backend; overridable at build time with
+/// Indirizzo del backend; sovrascrivibile in fase di build con
 /// --dart-define=API_BASE_URL=https://...
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'http://localhost:8080',
 );
 
-/// Error the UI can show as-is: carries the Problem Detail message
-/// returned by the backend when available.
-class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
-
-  final int? statusCode;
-  final String message;
-
-  @override
-  String toString() => message;
-}
-
 class ApiClient {
   ApiClient({required ClientIdStorage clientIdStorage})
-      : _dio = Dio(BaseOptions(baseUrl: apiBaseUrl))
-          ..interceptors.add(
+      : _dio = Dio(
+          BaseOptions(
+            baseUrl: apiBaseUrl,
+            // E4: senza timeout, se il server si impianta il client resta
+            // appeso per sempre. La creazione di un tabellone e' sincrona lato
+            // backend (N chiamate al modello in serie, piu' le attese fra i
+            // tentativi), quindi la ricezione ha un tetto largo; la connessione
+            // no, perche' un wifi caduto si riconosce subito.
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(minutes: 3),
+            sendTimeout: const Duration(seconds: 30),
+          ),
+        )..interceptors.add(
             InterceptorsWrapper(
               onRequest: (options, handler) async {
                 options.headers['X-Client-Id'] =
@@ -38,16 +38,6 @@ class ApiClient {
 
   Dio get dio => _dio;
 
-  /// Unwraps Dio errors into [ApiException] with the backend's
-  /// Problem Detail message when present.
-  static Never rethrowAsApiException(DioException e) {
-    final data = e.response?.data;
-    String message = 'Errore di rete: il server non risponde';
-    if (data is Map && data['detail'] is String) {
-      message = data['detail'] as String;
-    } else if (e.response != null) {
-      message = 'Errore ${e.response!.statusCode}';
-    }
-    throw ApiException(e.response?.statusCode, message);
-  }
+  /// Trasforma un errore di Dio in un [ErroreApi], che la UI sa raccontare.
+  static Never rilanciaComeErroreApi(DioException e) => throw ErroreApi.da(e);
 }

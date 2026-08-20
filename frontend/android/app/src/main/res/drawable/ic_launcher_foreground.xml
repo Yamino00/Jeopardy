@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Una rastrelliera di quattro tessere, una in gioco.
+     I vuoti fra le tessere sono la fuga: il fondo Notte che passa, che nel
+     sistema e' l'unica cosa che da' un bordo alle tessere (Quadro su Notte fa
+     1,64:1, quindi il bordo non lo puo' fare il contrasto).
+     Le tessere sono Acciaio e non Quadro: a 48dp il blu della tessera sul blu
+     del fondo sparisce, e un'icona di launcher e' ferramenta, non contenuto.
+     Quella in Ottone e' l'unica accesa, che e' la regola del sistema.
+     Tutto dentro la zona sicura 21..87 dell'icona adattiva. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/acciaio"
+        android:pathData="M27,24 L49,24 A3,3 0 0 1 52,27 L52,49 A3,3 0 0 1 49,52 L27,52 A3,3 0 0 1 24,49 L24,27 A3,3 0 0 1 27,24 Z" />
+    <path
+        android:fillColor="@color/ottone"
+        android:pathData="M59,24 L81,24 A3,3 0 0 1 84,27 L84,49 A3,3 0 0 1 81,52 L59,52 A3,3 0 0 1 56,49 L56,27 A3,3 0 0 1 59,24 Z" />
+    <path
+        android:fillColor="@color/acciaio"
+        android:pathData="M27,56 L49,56 A3,3 0 0 1 52,59 L52,81 A3,3 0 0 1 49,84 L27,84 A3,3 0 0 1 24,81 L24,59 A3,3 0 0 1 27,56 Z" />
+    <path
+        android:fillColor="@color/acciaio"
+        android:pathData="M59,56 L81,56 A3,3 0 0 1 84,59 L84,81 A3,3 0 0 1 81,84 L59,84 A3,3 0 0 1 56,81 L56,59 A3,3 0 0 1 59,56 Z" />
+</vector>

@@ -3,31 +3,31 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/theme/app_theme.dart';
+import '../../core/design/design.dart';
 import '../../core/widgets/animazioni.dart';
+import '../../core/widgets/raccolta_tessere.dart';
+import '../../core/widgets/tessera.dart';
 import '../../data/providers.dart';
 import '../../models/tabellone.dart';
+import '../../core/widgets/stato_errore.dart';
 
 /// Board preview: share code, grid overview, team setup and game start.
 class TabellonePage extends ConsumerWidget {
   const TabellonePage({
     super.key,
     required this.codice,
-    this.codiceModifica,
   });
 
   final String codice;
 
   /// Only set right after creation, to show it once.
-  final String? codiceModifica;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tabellone = ref.watch(tabelloneProvider(codice));
 
     return Scaffold(
       body: DecoratedBox(
-        decoration: sfondoApp,
+        decoration: const BoxDecoration(color: Colori.notte),
         child: Column(
           children: [
             AppBar(
@@ -36,7 +36,7 @@ class TabellonePage extends ConsumerWidget {
                   const Text('Codice '),
                   Text(codice,
                       style: const TextStyle(
-                          color: jeopardyGold, letterSpacing: 3)),
+                          color: Colori.ottone, letterSpacing: 3)),
                 ],
               ),
               leading: BackButton(onPressed: () => context.go('/')),
@@ -58,15 +58,13 @@ class TabellonePage extends ConsumerWidget {
             Expanded(
               child: tabellone.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('$e', textAlign: TextAlign.center),
-                  ),
+                error: (e, _) => StatoErrore(
+                  errore: e,
+                  onRiprova: () => ref.invalidate(tabelloneProvider(codice)),
+                  onIndietro: () => context.go('/'),
                 ),
                 data: (t) => _TabelloneBody(
                   tabellone: t,
-                  codiceModifica: codiceModifica,
                 ),
               ),
             ),
@@ -78,19 +76,13 @@ class TabellonePage extends ConsumerWidget {
 }
 
 class _TabelloneBody extends ConsumerWidget {
-  const _TabelloneBody({required this.tabellone, this.codiceModifica});
+  const _TabelloneBody({required this.tabellone});
 
   final Tabellone tabellone;
-  final String? codiceModifica;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       children: [
-        if (codiceModifica != null && codiceModifica!.isNotEmpty)
-          ComparsaAnimata(
-            child: _BannerCodiceModifica(codice: codiceModifica!),
-          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
           child: Text(
@@ -103,11 +95,23 @@ class _TabelloneBody extends ConsumerWidget {
           ),
         ),
         Expanded(
-          child: GrigliaTabellone(
-            tabellone: tabellone,
-            builderCella: (cella, indice) => ComparsaAnimata(
-              indice: indice,
-              child: _CellaValore(valore: cella.valore),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Misure.s3),
+            child: RaccoltaTessere(
+              categorie: [
+                for (final categoria in tabellone.categorie)
+                  CategoriaTessere(
+                    nome: categoria.nomeDisplay,
+                    tessere: [
+                      for (final cella in categoria.celle)
+                        DatiTessera(
+                          id: cella.id,
+                          valore: cella.valore,
+                          stato: StatoTessera.faccia,
+                        ),
+                    ],
+                  ),
+              ],
             ),
           ),
         ),
@@ -116,26 +120,22 @@ class _TabelloneBody extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
             child: PremibileAnimato(
               onTap: () => _configuraSquadre(context, ref),
+              etichetta: 'Avvia partita',
+              suggerimento: 'scegli le squadre e comincia',
               child: Container(
                 key: const Key('avvia-partita'),
                 padding: const EdgeInsets.symmetric(vertical: 18),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF22C55E), Color(0xFF16A34A)],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: bagliore(const Color(0xFF22C55E), intensita: 0.3),
+                  color: Colori.ottone,
+                  borderRadius: Misure.bordoCartellino,
+                  boxShadow: Luce.aloneTenue(),
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.play_arrow_rounded, color: Colors.white),
+                    Icon(Icons.play_arrow_rounded, color: Colori.notte),
                     SizedBox(width: 8),
-                    Text('Avvia partita',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800)),
+                    Text('Avvia partita', style: Tipografia.sullaLuce),
                   ],
                 ),
               ),
@@ -163,182 +163,9 @@ class _TabelloneBody extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(barraErrore(e));
       }
     }
-  }
-}
-
-class _BannerCodiceModifica extends StatelessWidget {
-  const _BannerCodiceModifica({required this.codice});
-
-  final String codice;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: jeopardyGold.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: jeopardyGold.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.key_rounded, color: jeopardyGold, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Conserva il codice di modifica',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700, color: Colors.white)),
-                const SizedBox(height: 2),
-                SelectableText(codice,
-                    style: const TextStyle(
-                        color: jeopardyGold,
-                        letterSpacing: 2,
-                        fontWeight: FontWeight.w700)),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: () => Clipboard.setData(ClipboardData(text: codice)),
-            child: const Text('Copia'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CellaValore extends StatelessWidget {
-  const _CellaValore({required this.valore});
-
-  final int valore;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: gradienteCella,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-      ),
-      child: Center(
-        child: Text(
-          '$valore',
-          style: const TextStyle(
-            color: jeopardyGold,
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Responsive board grid shared by preview and game screens: on narrow
-/// screens the categories scroll horizontally instead of being squeezed.
-class GrigliaTabellone extends StatelessWidget {
-  const GrigliaTabellone({
-    super.key,
-    required this.tabellone,
-    required this.builderCella,
-  });
-
-  final Tabellone tabellone;
-
-  /// Riceve la cella e un indice progressivo, usato per scaglionare le
-  /// animazioni di comparsa.
-  final Widget Function(Cella cella, int indice) builderCella;
-
-  static const double _larghezzaMinimaColonna = 158;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final larghezzaNecessaria =
-            tabellone.categorie.length * _larghezzaMinimaColonna;
-        final stretta = constraints.maxWidth < larghezzaNecessaria;
-        var progressivo = 0;
-
-        final colonne = [
-          for (var c = 0; c < tabellone.categorie.length; c++)
-            SizedBox(
-              width: stretta
-                  ? _larghezzaMinimaColonna
-                  : (constraints.maxWidth - 16) / tabellone.categorie.length,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: ComparsaAnimata(
-                      indice: c,
-                      child: Container(
-                        height: 64,
-                        decoration: BoxDecoration(
-                          gradient: gradienteCategoria,
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: bagliore(jeopardyBlueLight,
-                              intensita: 0.20),
-                        ),
-                        child: Center(
-                          child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                            child: Text(
-                              tabellone.categorie[c].nomeDisplay
-                                  .toUpperCase(),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                fontSize: 13,
-                                letterSpacing: 0.6,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  for (final cella in tabellone.categorie[c].celle)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: SizedBox.expand(
-                          child: builderCella(cella, progressivo++),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ];
-
-        if (stretta) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: colonne,
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(children: colonne),
-        );
-      },
-    );
   }
 }
 
@@ -362,9 +189,9 @@ class _SquadreDialogState extends State<_SquadreDialog> {
   void _aggiungi() {
     final nome = _nomeController.text.trim();
     if (nome.isEmpty) return;
-    final colore = squadraPalette[_squadre.length % squadraPalette.length];
+    final colore = SmaltiSquadra.tutti[_squadre.length % SmaltiSquadra.tutti.length];
     setState(() {
-      _squadre.add((nome: nome, colore: colorToHex(colore)));
+      _squadre.add((nome: nome, colore: hexDaColore(colore)));
       _nomeController.clear();
     });
   }
@@ -372,8 +199,8 @@ class _SquadreDialogState extends State<_SquadreDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: sfondoElevato,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colori.quadro,
+      shape: const RoundedRectangleBorder(borderRadius: Misure.bordoCartellino),
       title: const Text('Chi gioca?'),
       content: SizedBox(
         width: 380,
@@ -408,7 +235,7 @@ class _SquadreDialogState extends State<_SquadreDialog> {
                 indice: i,
                 child: _RigaSquadraDialog(
                   nome: _squadre[i].nome,
-                  colore: parseHexColor(_squadre[i].colore),
+                  colore: coloreDaHex(_squadre[i].colore),
                   onRimuovi: () =>
                       setState(() => _squadre.removeAt(i)),
                 ),
@@ -449,29 +276,23 @@ class _RigaSquadraDialog extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        // Sfondo tenue derivato dal colore squadra: il testo resta bianco e
-        // leggibile qualunque colore venga scelto
-        color: sfondoTenue(colore),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colore.withValues(alpha: 0.5)),
+      decoration: const BoxDecoration(
+        color: Colori.quadro,
+        borderRadius: Misure.bordoTessera,
       ),
       child: Row(
         children: [
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(color: colore, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
+          // Il colore squadra e' un intarsio, non un bordo sbiadito: la stessa
+          // banda che identifica la squadra in partita e nel riepilogo.
+          IntarsioInRiga(colore: colore),
           Expanded(
             child: Text(nome,
                 style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w600)),
+                    color: Colori.ghiaccio, fontWeight: FontWeight.w600)),
           ),
           IconButton(
             icon: const Icon(Icons.close_rounded, size: 18),
-            color: Colors.white70,
+            color: Colori.acciaio,
             onPressed: onRimuovi,
           ),
         ],

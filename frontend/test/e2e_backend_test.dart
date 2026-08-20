@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/core/api/api_client.dart';
+import 'package:frontend/core/api/errore_api.dart';
+import 'package:frontend/core/storage/cache_tabelloni.dart';
 import 'package:frontend/core/storage/client_id_storage.dart';
 import 'package:frontend/data/partita_repository.dart';
 import 'package:frontend/data/tabellone_repository.dart';
@@ -26,7 +28,7 @@ void main() {
   void abilitaReteReale() {
     HttpOverrides.global = null;
     final api = ApiClient(clientIdStorage: _FixedClientIdStorage());
-    tabelloni = TabelloneRepository(api);
+    tabelloni = TabelloneRepository(api, CacheTabelloni());
     partite = PartitaRepository(api);
   }
 
@@ -108,7 +110,7 @@ void main() {
         deltaPunti: 100,
         squadraId: rossi.id,
       ),
-      throwsA(isA<ApiException>()),
+      throwsA(isA<ErroreApi>()),
     );
 
     // 4. Annulla: l'errata sparisce, il punteggio torna e la cella si libera
@@ -131,7 +133,7 @@ void main() {
         deltaPunti: 100,
         squadraId: rossi.id,
       ),
-      throwsA(isA<ApiException>()),
+      throwsA(isA<ErroreApi>()),
     );
   }, timeout: const Timeout(Duration(minutes: 3)));
 
@@ -140,9 +142,10 @@ void main() {
     await expectLater(
       tabelloni.byCodice('ZZZZZZ'),
       throwsA(
-        isA<ApiException>()
-            .having((e) => e.statusCode, 'statusCode', 404)
-            .having((e) => e.message, 'message', contains('non trovato')),
+        isA<ErroreApi>()
+            .having((e) => e.codiceStato, 'codiceStato', 404)
+            .having((e) => e.genere, 'genere', GenereErrore.nonTrovato)
+            .having((e) => e.messaggio, 'messaggio', contains('non trovato')),
       ),
     );
   });

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../core/api/api_client.dart';
+import '../models/evento.dart';
 import '../models/partita.dart';
 
 class PartitaRepository {
@@ -21,7 +22,7 @@ class PartitaRepository {
       );
       return Partita.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
@@ -31,11 +32,12 @@ class PartitaRepository {
           await _api.dio.get<Map<String, dynamic>>('/api/partite/$id');
       return Partita.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
-  Future<void> giocaCella({
+  /// Restituisce **l'evento registrato**, che il backend manda da sempre.
+  Future<EventoPartita> giocaCella({
     required int partitaId,
     required int cellaId,
     required String esito,
@@ -43,7 +45,7 @@ class PartitaRepository {
     int? squadraId,
   }) async {
     try {
-      await _api.dio.post<void>(
+      final response = await _api.dio.post<Map<String, dynamic>>(
         '/api/partite/$partitaId/celle/$cellaId',
         data: {
           'squadra_id': squadraId,
@@ -51,8 +53,9 @@ class PartitaRepository {
           'delta_punti': deltaPunti,
         },
       );
+      return EventoPartita.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
@@ -65,7 +68,7 @@ class PartitaRepository {
       );
       return Squadra.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
@@ -87,7 +90,7 @@ class PartitaRepository {
       );
       return Squadra.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
@@ -95,15 +98,19 @@ class PartitaRepository {
     try {
       await _api.dio.delete<void>('/api/partite/$partitaId/squadre/$squadraId');
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
-  Future<void> annulla(int partitaId) async {
+  /// Restituisce **l'evento che è stato annullato**, così la UI può dire cosa
+  /// ha annullato invece di limitarsi a farlo in silenzio.
+  Future<EventoPartita> annulla(int partitaId) async {
     try {
-      await _api.dio.post<void>('/api/partite/$partitaId/annulla');
+      final response = await _api.dio
+          .post<Map<String, dynamic>>('/api/partite/$partitaId/annulla');
+      return EventoPartita.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 
@@ -113,7 +120,7 @@ class PartitaRepository {
           .post<Map<String, dynamic>>('/api/partite/$partitaId/concludi');
       return Partita.fromJson(response.data!);
     } on DioException catch (e) {
-      ApiClient.rethrowAsApiException(e);
+      ApiClient.rilanciaComeErroreApi(e);
     }
   }
 }
