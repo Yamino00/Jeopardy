@@ -439,7 +439,11 @@ class BarraSquadre extends ConsumerWidget {
     if (async.valueOrNull == null) return const SizedBox.shrink();
     // La chiave serve solo a decidere *quando* ricostruire; i dati veri si
     // leggono una volta sola, qui.
-    final partita = ref.read(partitaProvider(partitaId)).requireValue;
+    // La proiezione, non lo stato grezzo: altrimenti offline i punteggi
+    // restano fermi a quello che il server sapeva prima della disconnessione,
+    // mentre la griglia si aggiorna — e il podio contraddice il tabellone.
+    final partita =
+        ref.read(partitaVisualizzataProvider(partitaId)).requireValue;
     final notifier = ref.read(partitaProvider(partitaId).notifier);
 
     return Container(

@@ -17,7 +17,7 @@ class RiepilogoPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final partitaAsync = ref.watch(partitaProvider(partitaId));
+    final partitaAsync = ref.watch(partitaVisualizzataProvider(partitaId));
 
     return Scaffold(
       appBar: AppBar(
