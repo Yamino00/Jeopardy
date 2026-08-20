@@ -1,10 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/core/api/errore_api.dart';
 import 'package:frontend/core/storage/coda_azioni.dart';
 import 'package:frontend/data/partita_repository.dart';
 import 'package:frontend/data/providers.dart';
+import 'package:frontend/core/widgets/punteggio_palette.dart';
+import 'package:frontend/features/partita/azioni_in_attesa.dart';
+import 'package:frontend/features/partita/partita_page.dart';
 import 'package:frontend/models/evento.dart';
+import 'package:frontend/models/tabellone.dart';
 import 'package:frontend/models/azione_locale.dart';
 import 'package:frontend/models/partita.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -306,6 +311,107 @@ void main() {
       repo.rifiuta = true;
       await expectLater(gioca(11, 100), throwsA(isA<ErroreApi>()));
       expect(coda(), isEmpty);
+    });
+  });
+
+  group('quello che l host vede offline', () {
+    late _RepoFinto repo;
+
+    const tabellone = Tabellone(
+      codicePubblico: 'KDSYMS',
+      titolo: 'Prova',
+      righe: 2,
+      puntiBase: 100,
+      categorie: [
+        Categoria(
+          id: 1,
+          nomeDisplay: 'Storia',
+          posizione: 1,
+          celle: [
+            Cella(id: 11, riga: 1, valore: 200, dailyDouble: false),
+            Cella(id: 12, riga: 2, valore: 500, dailyDouble: false),
+          ],
+        ),
+      ],
+    );
+
+    Future<void> monta(WidgetTester tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(400, 900);
+      addTearDown(tester.view.reset);
+      repo = _RepoFinto(_partita);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            partitaRepositoryProvider.overrideWithValue(repo),
+            tabelloneProvider('KDSYMS').overrideWith((ref) async => tabellone),
+          ],
+          child: const MaterialApp(home: PartitaPage(partitaId: 1)),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('il podio mostra i punti anche se il server non li ha visti',
+        (tester) async {
+      // La regressione da cui nasce questo test: il podio leggeva lo stato
+      // grezzo del server invece della proiezione, quindi offline la griglia si
+      // aggiornava e i punteggi no — e il podio contraddiceva il tabellone.
+      // Il punteggio del podio e' disegnato da un CustomPainter: le cifre
+      // sono pixel, non widget Text. Si guarda il valore che il widget riceve.
+      int punteggioSulPodio() => tester
+          .widget<PunteggioPalette>(find.byKey(const Key('punteggio-1')))
+          .valore;
+
+      await monta(tester);
+      expect(punteggioSulPodio(), 300, reason: 'punteggio iniziale');
+
+      repo.rete = false;
+      final contenitore = ProviderScope.containerOf(
+        tester.element(find.byType(PartitaPage)),
+      );
+      await contenitore.read(partitaProvider(1).notifier).giocaCella(
+            cellaId: 11,
+            esito: 'corretta',
+            deltaPunti: 200,
+            squadraId: 1,
+          );
+      await tester.pumpAndSettle();
+
+      final mostrata =
+          contenitore.read(partitaVisualizzataProvider(1)).requireValue;
+      expect(_punti(mostrata, 1), 500, reason: 'la proiezione e giusta');
+      // E il podio deve dire la stessa cosa della proiezione: era proprio qui
+      // che divergeva.
+      expect(punteggioSulPodio(), 500,
+          reason: 'il podio mostra ancora il punteggio del server');
+    });
+
+    testWidgets('la striscia di avviso non si mangia il tabellone',
+        (tester) async {
+      // Un avviso che impedisce di giocare e peggio del problema che segnala:
+      // la prima versione occupava un quarto dello schermo e tagliava
+      // l ultima fila di tessere.
+      await monta(tester);
+      final contenitore = ProviderScope.containerOf(
+        tester.element(find.byType(PartitaPage)),
+      );
+      repo.rete = false;
+      await contenitore.read(partitaProvider(1).notifier).giocaCella(
+            cellaId: 11,
+            esito: 'corretta',
+            deltaPunti: 200,
+            squadraId: 1,
+          );
+      await tester.pumpAndSettle();
+
+      final striscia = find.byType(StrisciaAzioniInAttesa);
+      expect(striscia, findsOneWidget);
+      final altezza = tester.getSize(striscia).height;
+      expect(altezza, lessThan(90),
+          reason: 'la striscia occupa $altezza dp: torna a rubare spazio '
+              'al tabellone');
+      expect(find.byKey(const Key('riprova-invio')), findsOneWidget);
     });
   });
 }

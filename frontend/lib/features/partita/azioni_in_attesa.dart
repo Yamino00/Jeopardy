@@ -4,18 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/design/design.dart';
 import '../../data/providers.dart';
 
-/// La striscia che dice all'host cosa non è ancora arrivato al server.
+/// La riga che dice all'host cosa non è ancora arrivato al server.
 ///
 /// Compare **solo quando serve**: a rete funzionante non c'è niente in attesa e
-/// questa riga non esiste. Quando invece c'è, dice tre cose, e nessuna è
-/// decorativa:
+/// questa riga non esiste.
 ///
-/// 1. **quante** giocate sono in attesa, così l'host sa quanto rischia;
-/// 2. che il tabellone continua a funzionare, perché altrimenti la reazione
-///    naturale è ripetere il tocco e giocare la cella due volte;
-/// 3. che l'invio si fa da qui, quando la rete torna — e non da solo: ritentare
-///    a ogni tocco vorrebbe dire bloccare il tabellone per il tempo del timeout
-///    di connessione, proprio mentre il gruppo sta giocando.
+/// **Sta su una riga sola, e non è un dettaglio estetico.** La prima versione
+/// occupava un quarto dello schermo con un paragrafo di spiegazioni, e su un
+/// telefono tagliava l'ultima fila di tessere: un avviso che impedisce di
+/// giocare è peggio del problema che segnala. La spiegazione lunga non è andata
+/// persa — vive nella `Semantics`, dove serve davvero a chi non vede lo schermo.
 ///
 /// Sta in Segnale e non in Ottone: è la macchina che si fa sentire, non
 /// qualcosa che è in gioco.
@@ -30,20 +28,19 @@ class StrisciaAzioniInAttesa extends ConsumerWidget {
     if (inAttesa.isEmpty) return const SizedBox.shrink();
 
     final quante = inAttesa.length;
-    final testo = quante == 1
-        ? '1 giocata non è ancora arrivata al server'
-        : '$quante giocate non sono ancora arrivate al server';
+    final breve = quante == 1
+        ? '1 giocata in attesa'
+        : '$quante giocate in attesa';
 
     return Semantics(
       liveRegion: true,
-      label: '$testo. I punteggi che vedi sono aggiornati.',
+      label: '$breve. Puoi continuare a giocare: i punteggi che vedi sono '
+          'aggiornati. Quando la rete torna, tocca Riprova e le giocate '
+          "partiranno nell'ordine in cui le hai fatte.",
       excludeSemantics: true,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-          horizontal: Misure.s4,
-          vertical: Misure.s3,
-        ),
+        padding: const EdgeInsets.only(left: Misure.s4, right: Misure.s2),
         decoration: const BoxDecoration(
           color: Colori.notte,
           border: Border(top: BorderSide(color: Colori.segnale)),
@@ -51,28 +48,29 @@ class StrisciaAzioniInAttesa extends ConsumerWidget {
         child: Row(
           children: [
             const Icon(Icons.cloud_off_rounded,
-                color: Colori.segnale, size: 20),
+                color: Colori.segnale, size: 18),
             const SizedBox(width: Misure.s3),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    testo,
-                    style:
-                        Tipografia.corpoRilievo.copyWith(color: Colori.segnale),
-                  ),
-                  const SizedBox(height: Misure.s1),
-                  const Text(
-                    'Puoi continuare a giocare: i punteggi che vedi sono '
-                    'aggiornati. Quando la rete torna, tocca Riprova e '
-                    "partiranno nell'ordine in cui le hai fatte.",
-                    style: Tipografia.ferramenta,
-                  ),
-                ],
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: breve,
+                      style: Tipografia.ferramenta
+                          .copyWith(color: Colori.segnale),
+                    ),
+                    // Il punteggio è aggiornato: senza dirlo, la reazione
+                    // naturale è ripetere il tocco e giocare la cella due volte.
+                    const TextSpan(
+                      text: ' · i punteggi che vedi sono aggiornati',
+                      style: Tipografia.ferramenta,
+                    ),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: Misure.s3),
             TextButton(
               key: const Key('riprova-invio'),
               onPressed: () =>
