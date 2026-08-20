@@ -80,6 +80,23 @@ class Cella {
   final String? testo;
   final String? risposta;
 
+  /// Vero quando il backend non ha trovato una domanda per questa cella.
+  ///
+  /// Non è un caso teorico: quando la deduplicazione non lascia abbastanza
+  /// domande, `TabelloneService` scrive `testoOverride = "Domanda da
+  /// completare"` e **`rispostaOverride = ""`** invece di far fallire tutto il
+  /// tabellone. In partita questo diventava una non-domanda seguita, alla
+  /// rivelazione, da un riquadro vuoto.
+  ///
+  /// Il segnale su cui ci basiamo è la **risposta vuota**, non il testo: il
+  /// testo del segnaposto è configurabile lato backend
+  /// (`app.tabellone.placeholder-testo`), mentre una domanda vera ha sempre una
+  /// risposta. Confrontare la stringa sarebbe un accoppiamento a una
+  /// configurazione che non controlliamo.
+  bool get senzaDomanda =>
+      risposta == null || risposta!.trim().isEmpty ||
+      testo == null || testo!.trim().isEmpty;
+
   factory Cella.fromJson(Map<String, dynamic> json) => Cella(
         id: json['id'] as int,
         riga: json['riga'] as int,

@@ -24,6 +24,28 @@ class Partita {
   bool cellaGiaGiocata(int cellaId) =>
       celleGiocate.any((c) => c.cellaId == cellaId);
 
+  /// Una chiave confrontabile per valore delle celle giocate.
+  ///
+  /// Serve a `select` (S1): due `List` con lo stesso contenuto non sono uguali
+  /// fra loro, quindi selezionare la lista farebbe ricostruire la griglia a
+  /// ogni azione — compreso un cambio di punteggio, che alla griglia non
+  /// interessa. Una stringa invece si confronta per valore.
+  String get chiaveCelleGiocate {
+    final id = celleGiocate.map((c) => c.cellaId).toList()..sort();
+    return id.join(',');
+  }
+
+  /// Idem per il podio: nome, punteggio, colore e turno di ogni squadra attiva.
+  String get chiaveSquadre {
+    final parti = [
+      for (final s in squadreAttive)
+        '${s.id}:${s.nome}:${s.punteggio}:${s.colore}',
+      'turno=$turnoSquadraId',
+      'stato=$stato',
+    ];
+    return parti.join('|');
+  }
+
   factory Partita.fromJson(Map<String, dynamic> json) => Partita(
         id: json['id'] as int,
         codiceTabellone: json['codice_tabellone'] as String,

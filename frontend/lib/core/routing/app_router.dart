@@ -24,7 +24,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => TabellonePage(
           codice: state.pathParameters['codice']!,
           // Passato solo subito dopo la creazione, per mostrarlo una volta
-          codiceModifica: state.uri.queryParameters['modifica'],
         ),
       ),
       GoRoute(

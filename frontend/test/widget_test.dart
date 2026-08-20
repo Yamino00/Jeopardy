@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/data/providers.dart';
+import 'package:frontend/core/widgets/raccolta_tessere.dart';
 import 'package:frontend/features/home/home_page.dart';
 import 'package:frontend/features/partita/partita_page.dart';
 import 'package:frontend/models/partita.dart';
@@ -78,17 +79,31 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // La cella giocata mostra il segno di spunta al posto del valore,
-    // l'altra resta giocabile e mostra i suoi punti
-    expect(find.text('200'), findsOneWidget);
-    expect(find.byKey(const Key('cella-10')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('cella-10')),
-        matching: find.byIcon(Icons.check_rounded),
-      ),
-      findsOneWidget,
+    // La tessera giocata si e' girata: mostra il dorso, quindi il suo numerale
+    // non e' piu' nell'albero. Prima era un segno di spunta a 2,1:1 sopra la
+    // tessera; ora lo stato si legge dalla direzione della tessera.
+    //
+    // La ricerca e' ristretta alla griglia: '100' e anche il punteggio della
+    // squadra nel podio, e cercarlo in tutta la pagina trova quello.
+    final griglia = find.byType(RaccoltaTessere);
+    expect(find.descendant(of: griglia, matching: find.text('200')),
+        findsOneWidget, reason: 'la 200 e giocabile e mostra il numerale');
+    expect(find.descendant(of: griglia, matching: find.text('100')),
+        findsNothing, reason: 'la 100 e girata: nessun numerale');
+
+    // E lo stato arriva anche a chi usa uno screen reader.
+    final girata = tester.getSemantics(
+      find.bySemanticsLabel('Storia, 100 punti'),
     );
+    expect(girata.value, 'già giocata');
+    expect(girata.flagsCollection.isButton, isFalse,
+        reason: 'una tessera girata non e piu un pulsante');
+
+    final giocabile = tester.getSemantics(
+      find.bySemanticsLabel('Storia, 200 punti'),
+    );
+    expect(giocabile.value, 'da giocare');
+    expect(giocabile.flagsCollection.isButton, isTrue);
 
     // La barra squadre mostra il punteggio
     expect(find.byKey(const Key('punteggio-1')), findsOneWidget);

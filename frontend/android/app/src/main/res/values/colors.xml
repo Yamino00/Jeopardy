@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- I soli token del design system che servono anche fuori da Dart: la finestra
+     Android e l'icona del launcher esistono prima che Flutter disegni il primo
+     frame. Devono restare uguali a lib/core/design/colori.dart. -->
+<resources>
+    <color name="notte">#FF0B1533</color>
+    <color name="quadro">#FF22377E</color>
+    <color name="ghiaccio">#FFEAF0FA</color>
+    <color name="ottone">#FFE9A33C</color>
+    <color name="acciaio">#FFA3B2D2</color>
+</resources>

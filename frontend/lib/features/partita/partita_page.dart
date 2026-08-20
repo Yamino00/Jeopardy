@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/theme/app_theme.dart';
+import '../../core/design/design.dart';
 import '../../core/widgets/animazioni.dart';
+import '../../core/widgets/raccolta_tessere.dart';
+import '../../core/widgets/schermo_sveglio.dart';
+import '../../core/widgets/punteggio_palette.dart';
+import '../../core/widgets/tessera.dart';
+import 'cella_senza_domanda.dart';
+import 'placca_domanda.dart';
 import '../../data/providers.dart';
+import '../../data/tabellone_repository.dart';
 import '../../models/partita.dart';
 import '../../models/tabellone.dart';
-import '../tabellone/tabellone_page.dart';
+import '../../core/widgets/stato_errore.dart';
 
 /// The live game: board grid, fullscreen cell with two-step reveal,
 /// and the always-visible team bar with undo.
@@ -21,26 +28,94 @@ class PartitaPage extends ConsumerWidget {
     final partitaAsync = ref.watch(partitaProvider(partitaId));
 
     return partitaAsync.when(
-      loading: () => const Scaffold(
-          body: Center(child: CircularProgressIndicator())),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
-        appBar: AppBar(
-            leading: BackButton(onPressed: () => context.go('/'))),
-        body: Center(child: Text('$e')),
+        appBar: AppBar(leading: BackButton(onPressed: () => context.go('/'))),
+        body: StatoErrore(
+          errore: e,
+          onRiprova: () => ref.invalidate(partitaProvider(partitaId)),
+          onIndietro: () => context.go('/'),
+        ),
       ),
       data: (partita) {
         final tabelloneAsync =
             ref.watch(tabelloneProvider(partita.codiceTabellone));
         return tabelloneAsync.when(
-          loading: () => const Scaffold(
-              body: Center(child: CircularProgressIndicator())),
-          error: (e, _) => Scaffold(body: Center(child: Text('$e'))),
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (e, _) => Scaffold(
+            appBar:
+                AppBar(leading: BackButton(onPressed: () => context.go('/'))),
+            body: StatoErrore(
+              errore: e,
+              onRiprova: () =>
+                  ref.invalidate(tabelloneProvider(partita.codiceTabellone)),
+              onIndietro: () => context.go('/'),
+            ),
+          ),
           data: (tabellone) => _PartitaBody(
             partita: partita,
             tabellone: tabellone,
           ),
         );
       },
+    );
+  }
+}
+
+/// La griglia, che guarda **solo** quali celle sono state giocate.
+///
+/// S1: prima l'intera pagina osservava la `Partita` e ogni azione ricostruiva
+/// tutto — fino a trenta celle piu' la barra squadre — anche per un semplice
+/// cambio di punteggio, che alla griglia non interessa. Qui il `select` su una
+/// chiave confrontabile per valore fa si' che la griglia si ricostruisca
+/// soltanto quando una cella cambia stato.
+class _GrigliaPartita extends ConsumerWidget {
+  const _GrigliaPartita({
+    required this.partitaId,
+    required this.tabellone,
+    required this.onApri,
+  });
+
+  final int partitaId;
+  final Tabellone tabellone;
+  final void Function(int cellaId) onApri;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fetta = ref.watch(
+      partitaProvider(partitaId).select(
+        (async) => async.whenData(
+          (p) => (giocate: p.chiaveCelleGiocate, inCorso: p.inCorso),
+        ),
+      ),
+    );
+    final dati = fetta.valueOrNull;
+    if (dati == null) return const SizedBox.shrink();
+
+    final giocate = dati.giocate.isEmpty
+        ? const <String>{}
+        : dati.giocate.split(',').toSet();
+
+    return RaccoltaTessere(
+      categorie: [
+        for (final categoria in tabellone.categorie)
+          CategoriaTessere(
+            nome: categoria.nomeDisplay,
+            tessere: [
+              for (final cella in categoria.celle)
+                DatiTessera(
+                  id: cella.id,
+                  valore: cella.valore,
+                  stato: giocate.contains('${cella.id}')
+                      ? StatoTessera.dorso
+                      : StatoTessera.faccia,
+                ),
+            ],
+          ),
+      ],
+      onTocco: dati.inCorso ? onApri : null,
     );
   }
 }
@@ -53,68 +128,77 @@ class _PartitaBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: sfondoApp,
-        child: Column(
-          children: [
-            AppBar(
-              title: Text(tabellone.titolo),
-              leading: BackButton(onPressed: () => context.go('/')),
-              actions: [
-                TextButton.icon(
-                  key: const Key('concludi-partita'),
-                  onPressed:
-                      partita.inCorso ? () => _concludi(context, ref) : null,
-                  icon: const Icon(Icons.flag_rounded, size: 18),
-                  label: const Text('Concludi'),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-            Expanded(
-              child: GrigliaTabellone(
-                tabellone: tabellone,
-                builderCella: (cella, indice) => ComparsaAnimata(
-                  indice: indice,
-                  child: _CellaGioco(
-                    cella: cella,
-                    giocata: partita.cellaGiaGiocata(cella.id),
-                    abilitata: partita.inCorso,
-                    onTap: () => _apriCella(context, ref, cella),
+    // Lo schermo resta acceso **solo** mentre la partita e' in corso: su una
+    // partita conclusa il telefono torna a comportarsi come sempre.
+    return SchermoSveglio(
+      attivo: partita.inCorso,
+      child: Scaffold(
+        body: DecoratedBox(
+          decoration: const BoxDecoration(color: Colori.notte),
+          child: Column(
+            children: [
+              AppBar(
+                title: Text(tabellone.titolo),
+                leading: BackButton(onPressed: () => context.go('/')),
+                actions: [
+                  TextButton.icon(
+                    key: const Key('concludi-partita'),
+                    onPressed:
+                        partita.inCorso ? () => _concludi(context, ref) : null,
+                    icon: const Icon(Icons.flag_rounded, size: 18),
+                    label: const Text('Concludi'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Misure.s3),
+                  child: _GrigliaPartita(
+                    partitaId: partita.id,
+                    tabellone: tabellone,
+                    onApri: (id) => _apriCella(context, ref, id),
                   ),
                 ),
               ),
-            ),
-            BarraSquadre(partita: partita),
-          ],
+              BarraSquadre(partitaId: partita.id),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _apriCella(
-      BuildContext context, WidgetRef ref, Cella cella) async {
-    final categoria = tabellone.categorie
-        .firstWhere((c) => c.celle.any((x) => x.id == cella.id));
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => CellaDialog(
-        partitaId: partita.id,
-        cella: cella,
-        nomeCategoria: categoria.nomeDisplay,
-        squadre: partita.squadreAttive,
-      ),
-    );
+      BuildContext context, WidgetRef ref, int cellaId) async {
+    for (final categoria in tabellone.categorie) {
+      for (final cella in categoria.celle) {
+        if (cella.id != cellaId) continue;
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => CellaDialog(
+            partitaId: partita.id,
+            codiceTabellone: tabellone.codicePubblico,
+            cella: cella,
+            nomeCategoria: categoria.nomeDisplay,
+            squadre: partita.squadreAttive,
+          ),
+        );
+        return;
+      }
+    }
+    // Nessuna categoria contiene la cella: prima era uno `StateError` non
+    // gestito (E5). Non c'e' niente da mostrare, quindi non si mostra niente.
   }
 
   Future<void> _concludi(BuildContext context, WidgetRef ref) async {
     final conferma = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: sfondoElevato,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colori.quadro,
+        shape:
+            const RoundedRectangleBorder(borderRadius: Misure.bordoCartellino),
         title: const Text('Concludere la partita?'),
         content: const Text('I punteggi diventeranno definitivi.'),
         actions: [
@@ -136,67 +220,24 @@ class _PartitaBody extends ConsumerWidget {
   }
 }
 
-class _CellaGioco extends StatelessWidget {
-  const _CellaGioco({
-    required this.cella,
-    required this.giocata,
-    required this.abilitata,
-    required this.onTap,
-  });
-
-  final Cella cella;
-  final bool giocata;
-  final bool abilitata;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final attiva = !giocata && abilitata;
-    return PremibileAnimato(
-      onTap: attiva ? onTap : null,
-      child: AnimatedContainer(
-        key: Key('cella-${cella.id}'),
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          gradient: giocata ? null : gradienteCella,
-          color: giocata ? Colors.white.withValues(alpha: 0.03) : null,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: giocata
-                ? Colors.white.withValues(alpha: 0.05)
-                : Colors.white.withValues(alpha: 0.08),
-          ),
-        ),
-        child: Center(
-          child: giocata
-              ? const Icon(Icons.check_rounded, color: Colors.white24, size: 26)
-              : Text(
-                  '${cella.valore}',
-                  style: const TextStyle(
-                    color: jeopardyGold,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Fullscreen question: the answer is hidden until "Mostra risposta",
-/// then points can be assigned or the cell passed.
+/// La cella aperta: la placca a tutto schermo.
+///
+/// Il dialog non disegna niente da sé — sceglie **quale** superficie mostrare
+/// (la placca, oppure lo stato "questa cella non ha una domanda") e possiede lo
+/// stato asincrono. Il disegno sta in `placca_domanda.dart` e
+/// `cella_senza_domanda.dart`, che si montano in un test senza Riverpod.
 class CellaDialog extends ConsumerStatefulWidget {
   const CellaDialog({
     super.key,
     required this.partitaId,
+    required this.codiceTabellone,
     required this.cella,
     required this.nomeCategoria,
     required this.squadre,
   });
 
   final int partitaId;
+  final String codiceTabellone;
   final Cella cella;
   final String nomeCategoria;
   final List<Squadra> squadre;
@@ -209,12 +250,25 @@ class _CellaDialogState extends ConsumerState<CellaDialog> {
   bool _rispostaVisibile = false;
   bool _inviando = false;
 
+  /// La cella corrente: cambia sotto i piedi quando viene rigenerata o
+  /// corretta a mano, e da quel momento la placca la usa come qualunque altra.
+  late Cella _cella;
+
+  EsitoTentativo _esito = EsitoTentativo.nessuno;
+  String? _messaggioErrore;
+
+  @override
+  void initState() {
+    super.initState();
+    _cella = widget.cella;
+  }
+
   Future<void> _gioca(String esito, int delta, int? squadraId) async {
     if (_inviando) return;
     setState(() => _inviando = true);
     try {
       await ref.read(partitaProvider(widget.partitaId).notifier).giocaCella(
-            cellaId: widget.cella.id,
+            cellaId: _cella.id,
             esito: esito,
             deltaPunti: delta,
             squadraId: squadraId,
@@ -223,249 +277,174 @@ class _CellaDialogState extends ConsumerState<CellaDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _inviando = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(barraErrore(e));
+      }
+    }
+  }
+
+  Future<void> _rigenera(String codiceModifica) async {
+    setState(() {
+      _esito = EsitoTentativo.inCorso;
+      _messaggioErrore = null;
+    });
+    try {
+      final risultato =
+          await ref.read(tabelloneRepositoryProvider).rigeneraCella(
+                codicePubblico: widget.codiceTabellone,
+                codiceModifica: codiceModifica,
+                cellaId: _cella.id,
+              );
+      if (!mounted) return;
+      switch (risultato) {
+        case RigenerazioneRiuscita(cella: final nuova):
+          // Il tabellone in cache non sa della nuova domanda: va invalidato,
+          // altrimenti la griglia resta con la cella vecchia.
+          ref.invalidate(tabelloneProvider(widget.codiceTabellone));
+          setState(() {
+            _cella = nuova;
+            _esito = EsitoTentativo.nessuno;
+          });
+        case NessunaAlternativa():
+          // Esito atteso, non errore: nessuno snackbar rosso.
+          setState(() => _esito = EsitoTentativo.esaurita);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _esito = EsitoTentativo.errore;
+          _messaggioErrore = '$e';
+        });
+      }
+    }
+  }
+
+  Future<void> _correggi(String codiceModifica) async {
+    final correzione = await showDialog<({String testo, String risposta})>(
+      context: context,
+      builder: (_) => DialogCorrezioneCella(
+        nomeCategoria: widget.nomeCategoria,
+        valore: _cella.valore,
+        testoIniziale: _cella.senzaDomanda ? '' : (_cella.testo ?? ''),
+        rispostaIniziale: _cella.risposta ?? '',
+      ),
+    );
+    if (correzione == null || !mounted) return;
+
+    setState(() {
+      _esito = EsitoTentativo.inCorso;
+      _messaggioErrore = null;
+    });
+    try {
+      final tabellone =
+          await ref.read(tabelloneRepositoryProvider).correggiCella(
+                codicePubblico: widget.codiceTabellone,
+                codiceModifica: codiceModifica,
+                cellaId: _cella.id,
+                testo: correzione.testo,
+                risposta: correzione.risposta,
+              );
+      if (!mounted) return;
+      ref.invalidate(tabelloneProvider(widget.codiceTabellone));
+      // La risposta del PUT è il tabellone intero: la cella corretta si
+      // ripesca da lì invece di fidarsi di quello che abbiamo inviato.
+      Cella? aggiornata;
+      for (final categoria in tabellone.categorie) {
+        for (final c in categoria.celle) {
+          if (c.id == _cella.id) aggiornata = c;
+        }
+      }
+      setState(() {
+        _cella = aggiornata ?? _cella;
+        _esito = EsitoTentativo.nessuno;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _esito = EsitoTentativo.errore;
+          _messaggioErrore = '$e';
+        });
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final valore = widget.cella.valore;
+    // Nullo quando questo dispositivo non ha creato il tabellone: allora le
+    // azioni di riparazione non esistono, perché il backend le rifiuterebbe.
+    final codiceModifica =
+        ref.watch(codiceModificaProvider(widget.codiceTabellone)).valueOrNull;
+
     return Dialog.fullscreen(
-      backgroundColor: Colors.transparent,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1B2A7B), Color(0xFF0C1236)],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: jeopardyGold.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '${widget.nomeCategoria.toUpperCase()} · $valore',
-                        style: const TextStyle(
-                          color: jeopardyGold,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      key: const Key('chiudi-cella'),
-                      onPressed:
-                          _inviando ? null : () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          Text(
-                            widget.cella.testo ?? '',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 30,
-                              fontWeight: FontWeight.w700,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 320),
-                            transitionBuilder: (child, anim) => FadeTransition(
-                              opacity: anim,
-                              child: SizeTransition(
-                                  sizeFactor: anim, child: child),
-                            ),
-                            child: _rispostaVisibile
-                                ? Container(
-                                    key: const ValueKey('risposta'),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 24, vertical: 16),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          jeopardyGold.withValues(alpha: 0.14),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                          color: jeopardyGold.withValues(
-                                              alpha: 0.5)),
-                                    ),
-                                    child: Text(
-                                      widget.cella.risposta ?? '',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: jeopardyGold,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                        ],
-                      ),
-                    ),
+      backgroundColor: Colori.notte,
+      child: _cella.senzaDomanda
+          ? CellaSenzaDomanda(
+              nomeCategoria: widget.nomeCategoria,
+              valore: _cella.valore,
+              puoRiparare: codiceModifica != null,
+              esito: _esito,
+              messaggioErrore: _messaggioErrore,
+              onChiudi: () => Navigator.of(context).pop(),
+              onRigenera: () => _rigenera(codiceModifica!),
+              onCorreggi: () => _correggi(codiceModifica!),
+              onPassa: () => _gioca('passata', 0, null),
+            )
+          : PlaccaDomanda(
+              nomeCategoria: widget.nomeCategoria,
+              valore: _cella.valore,
+              domanda: _cella.testo ?? '',
+              risposta: _cella.risposta ?? '',
+              rispostaVisibile: _rispostaVisibile,
+              inviando: _inviando,
+              squadre: [
+                for (final squadra in widget.squadre)
+                  (
+                    id: squadra.id,
+                    nome: squadra.nome,
+                    colore: coloreDaHex(squadra.colore),
                   ),
-                ),
-                if (!_rispostaVisibile)
-                  PremibileAnimato(
-                    onTap: () => setState(() => _rispostaVisibile = true),
-                    child: Container(
-                      key: const Key('mostra-risposta'),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 34),
-                      decoration: BoxDecoration(
-                        color: jeopardyGold,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: bagliore(jeopardyGold, intensita: 0.35),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.visibility_rounded, color: Colors.black87),
-                          SizedBox(width: 10),
-                          Text('Mostra risposta',
-                              style: TextStyle(
-                                  color: Colors.black87,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800)),
-                        ],
-                      ),
-                    ),
-                  )
-                else ...[
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 10,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      for (var i = 0; i < widget.squadre.length; i++)
-                        ComparsaAnimata(
-                          indice: i,
-                          child: _AssegnaPuntiChip(
-                            squadra: widget.squadre[i],
-                            valore: valore,
-                            inviando: _inviando,
-                            onCorretta: () => _gioca(
-                                'corretta', valore, widget.squadre[i].id),
-                            onErrata: () => _gioca(
-                                'errata', -valore, widget.squadre[i].id),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  TextButton.icon(
-                    key: const Key('passa-cella'),
-                    onPressed:
-                        _inviando ? null : () => _gioca('passata', 0, null),
-                    icon: const Icon(Icons.skip_next_rounded),
-                    label: const Text('Nessuno risponde: passa'),
-                  ),
-                ],
               ],
+              onChiudi: () => Navigator.of(context).pop(),
+              onMostraRisposta: () => setState(() => _rispostaVisibile = true),
+              onAssegna: (squadraId, positivo) => _gioca(
+                positivo ? 'corretta' : 'errata',
+                positivo ? _cella.valore : -_cella.valore,
+                squadraId,
+              ),
+              onPassa: () => _gioca('passata', 0, null),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AssegnaPuntiChip extends StatelessWidget {
-  const _AssegnaPuntiChip({
-    required this.squadra,
-    required this.valore,
-    required this.inviando,
-    required this.onCorretta,
-    required this.onErrata,
-  });
-
-  final Squadra squadra;
-  final int valore;
-  final bool inviando;
-  final VoidCallback onCorretta;
-  final VoidCallback onErrata;
-
-  @override
-  Widget build(BuildContext context) {
-    final colore = parseHexColor(squadra.colore);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: sfondoTenue(colore),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colore.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(color: colore, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(squadra.nome,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600)),
-          const SizedBox(width: 6),
-          IconButton(
-            key: Key('corretta-${squadra.id}'),
-            tooltip: '+$valore',
-            onPressed: inviando ? null : onCorretta,
-            icon: const Icon(Icons.check_circle_rounded,
-                color: Color(0xFF4ADE80)),
-          ),
-          IconButton(
-            key: Key('errata-${squadra.id}'),
-            tooltip: '-$valore',
-            onPressed: inviando ? null : onErrata,
-            icon: const Icon(Icons.cancel_rounded, color: Color(0xFFFF6B6B)),
-          ),
-        ],
-      ),
     );
   }
 }
 
 /// Always-visible team bar: scores (long-press to edit), add team,
 /// and the ever-reachable undo button.
+/// Il podio, sempre visibile, con l'annulla sempre raggiungibile.
+///
+/// S3: prima riceveva la `Partita` dal costruttore, quindi si ricostruiva per
+/// intero insieme al padre invece di isolarsi sul solo dato che le serve.
 class BarraSquadre extends ConsumerWidget {
-  const BarraSquadre({super.key, required this.partita});
+  const BarraSquadre({super.key, required this.partitaId});
 
-  final Partita partita;
+  final int partitaId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(partitaProvider(partita.id).notifier);
+    final async = ref.watch(
+      partitaProvider(partitaId).select(
+        (a) => a.whenData((p) => p.chiaveSquadre),
+      ),
+    );
+    if (async.valueOrNull == null) return const SizedBox.shrink();
+    // La chiave serve solo a decidere *quando* ricostruire; i dati veri si
+    // leggono una volta sola, qui.
+    final partita = ref.read(partitaProvider(partitaId)).requireValue;
+    final notifier = ref.read(partitaProvider(partitaId).notifier);
 
     return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A0E2E),
+      decoration: const BoxDecoration(
+        color: Colori.notte,
         border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          top: BorderSide(color: Colori.quadro),
         ),
       ),
       child: SafeArea(
@@ -494,7 +473,8 @@ class BarraSquadre extends ConsumerWidget {
                 key: const Key('aggiungi-squadra-partita'),
                 tooltip: 'Aggiungi squadra',
                 onPressed: partita.inCorso
-                    ? () => _aggiungiSquadra(context, notifier)
+                    ? () => _aggiungiSquadra(
+                        context, notifier, partita.squadre.length)
                     : null,
                 icon: const Icon(Icons.group_add_rounded),
               ),
@@ -502,27 +482,60 @@ class BarraSquadre extends ConsumerWidget {
                 onTap: partita.inCorso
                     ? () async {
                         try {
-                          await notifier.annulla();
+                          final evento = await notifier.annulla();
+                          if (!context.mounted) return;
+                          // Il backend restituisce l'evento annullato: si dice
+                          // cosa e' tornato indietro invece di farlo in
+                          // silenzio. Con un host che sbaglia ad assegnare i
+                          // punti, e' l'informazione piu' utile dell'app.
+                          final nome = partita.squadre
+                              .where((s) => s.id == evento.squadraId)
+                              .map((s) => s.nome)
+                              .firstOrNull;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Annullato: ${evento.descrizione(nome)}'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
                         } catch (e) {
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('$e')));
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(barraErrore(e));
                           }
                         }
                       }
                     : null,
-                child: Container(
-                  key: const Key('annulla-evento'),
-                  margin: const EdgeInsets.only(right: 10, left: 4),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: partita.inCorso
-                        ? jeopardyGold.withValues(alpha: 0.15)
-                        : Colors.white.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(12),
+                child: Semantics(
+                  button: true,
+                  enabled: partita.inCorso,
+                  label: "Annulla l'ultima azione",
+                  excludeSemantics: true,
+                  child: Container(
+                    key: const Key('annulla-evento'),
+                    margin: const EdgeInsets.symmetric(horizontal: Misure.s1),
+                    // CLAUDE.md: "L'annulla deve essere sempre raggiungibile
+                    // con un pollice, mai sepolto in un menu". Area piu' grande
+                    // del minimo, perche' l'host la cerca col pollice mentre
+                    // guarda il tavolo invece dello schermo.
+                    width: Misure.areaAnnulla,
+                    height: Misure.areaAnnulla,
+                    decoration: BoxDecoration(
+                      color: Colori.quadro,
+                      borderRadius: Misure.bordoCartellino,
+                      border: Border.all(
+                        color:
+                            partita.inCorso ? Colori.ottone : Colori.acciaio,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.undo_rounded,
+                      // C3: l'annulla disabilitato era Colors.white24, cioe'
+                      // 2,1:1. Acciaio sta a 5,14:1 sul Quadro.
+                      color: partita.inCorso ? Colori.ottone : Colori.acciaio,
+                    ),
                   ),
-                  child: Icon(Icons.undo_rounded,
-                      color: partita.inCorso ? jeopardyGold : Colors.white24),
                 ),
               ),
             ],
@@ -533,13 +546,19 @@ class BarraSquadre extends ConsumerWidget {
   }
 
   Future<void> _aggiungiSquadra(
-      BuildContext context, PartitaNotifier notifier) async {
+    BuildContext context,
+    PartitaNotifier notifier,
+    int quanteSquadre,
+  ) async {
+    // E6: i controller creati per un dialog vanno smaltiti alla chiusura.
+    // Prima ne restava uno appeso per ogni apertura.
     final controller = TextEditingController();
     final nome = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: sfondoElevato,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colori.quadro,
+        shape:
+            const RoundedRectangleBorder(borderRadius: Misure.bordoCartellino),
         title: const Text('Nuova squadra'),
         content: TextField(
           key: const Key('campo-nuova-squadra'),
@@ -554,29 +573,30 @@ class BarraSquadre extends ConsumerWidget {
               child: const Text('Annulla')),
           FilledButton(
             key: const Key('conferma-nuova-squadra'),
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('Aggiungi'),
           ),
         ],
       ),
     );
+    controller.dispose();
     if (nome == null || nome.isEmpty) return;
-    final colore = squadraPalette[
-        partita.squadre.length % squadraPalette.length];
-    await notifier.aggiungiSquadra(nome, colore: colorToHex(colore));
+    final colore =
+        SmaltiSquadra.tutti[quanteSquadre % SmaltiSquadra.tutti.length];
+    await notifier.aggiungiSquadra(nome, colore: hexDaColore(colore));
   }
 
-  Future<void> _modificaSquadra(BuildContext context,
-      PartitaNotifier notifier, Squadra squadra) async {
+  Future<void> _modificaSquadra(
+      BuildContext context, PartitaNotifier notifier, Squadra squadra) async {
     final nomeController = TextEditingController(text: squadra.nome);
     final punteggioController =
         TextEditingController(text: '${squadra.punteggio}');
     final azione = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: sfondoElevato,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colori.quadro,
+        shape:
+            const RoundedRectangleBorder(borderRadius: Misure.bordoCartellino),
         title: Text('Modifica ${squadra.nome}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -600,8 +620,8 @@ class BarraSquadre extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop('rimuovi'),
-            child: const Text('Rimuovi',
-                style: TextStyle(color: Color(0xFFFF6B6B))),
+            child:
+                const Text('Rimuovi', style: TextStyle(color: Colori.segnale)),
           ),
           TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -614,17 +634,20 @@ class BarraSquadre extends ConsumerWidget {
         ],
       ),
     );
+    // I valori si leggono prima di smaltire i controller.
+    final nuovoNome = nomeController.text.trim();
+    final punteggio = int.tryParse(punteggioController.text.trim());
+    nomeController.dispose();
+    punteggioController.dispose();
+
     if (azione == null) return;
     if (azione == 'rimuovi') {
       await notifier.rimuoviSquadra(squadra.id);
       return;
     }
-    final punteggio = int.tryParse(punteggioController.text.trim());
     await notifier.aggiornaSquadra(
       squadra.id,
-      nome: nomeController.text.trim().isEmpty
-          ? null
-          : nomeController.text.trim(),
+      nome: nuovoNome.isEmpty ? null : nuovoNome,
       punteggio: punteggio,
     );
   }
@@ -643,24 +666,28 @@ class _SquadraCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colore = parseHexColor(squadra.colore);
+    final colore = coloreDaHex(squadra.colore);
     return PremibileAnimato(
       onLongPress: onLongPress,
+      etichetta: '${squadra.nome}, ${squadra.punteggio} punti'
+          '${inTurno ? ", di turno" : ""}',
+      suggerimento: 'tieni premuto per correggere il punteggio o rimuovere',
       child: AnimatedContainer(
         key: Key('squadra-${squadra.id}'),
-        duration: const Duration(milliseconds: 260),
+        duration: context.durata(Movimento.normale),
         margin: const EdgeInsets.only(right: 10),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          // Fondo sempre scuro, derivato dal colore squadra: il testo bianco
-          // resta leggibile anche con colori chiari come il giallo
-          color: sfondoTenue(colore),
-          borderRadius: BorderRadius.circular(14),
+          // Il colore squadra non sta dietro del testo: e' l'intarsio nella
+          // riga sotto. Qui il fondo e' la superficie di sistema, e il bordo
+          // di luce dice soltanto di chi e' il turno.
+          color: Colori.quadro,
+          borderRadius: Misure.bordoCartellino,
           border: Border.all(
-            color: inTurno ? colore : colore.withValues(alpha: 0.35),
-            width: inTurno ? 2 : 1,
+            color: inTurno ? Colori.ottone : Colori.acciaio,
+            width: inTurno ? Misure.bordoLuce : 1,
           ),
-          boxShadow: inTurno ? bagliore(colore, intensita: 0.4) : null,
+          boxShadow: inTurno ? Luce.alone() : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -680,24 +707,16 @@ class _SquadraCard extends StatelessWidget {
                   const SizedBox(width: 7),
                   Text(
                     squadra.nome,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
+                    style: Tipografia.nomeSquadra,
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 2),
-            PunteggioAnimato(
+            PunteggioPalette(
               key: Key('punteggio-${squadra.id}'),
               valore: squadra.punteggio,
-              stile: const TextStyle(
-                color: jeopardyGold,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-              ),
+              dimensione: 22,
             ),
           ],
         ),

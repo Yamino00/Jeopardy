@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema della finestra durante l'avvio del processo. Fondo Notte e non
+         bianco: altrimenti si vede un lampo chiaro prima del primo frame.
+         Non esiste una variante -night perche' l'app ha un solo tema. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <!-- Tema della finestra da quando il processo e' partito: resta dietro la
+         UI Flutter, quindi va dello stesso colore del fondo dell'app. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/notte</item>
+    </style>
+</resources>
