@@ -8,6 +8,7 @@ import '../../core/widgets/raccolta_tessere.dart';
 import '../../core/widgets/schermo_sveglio.dart';
 import '../../core/widgets/punteggio_palette.dart';
 import '../../core/widgets/tessera.dart';
+import 'azioni_in_attesa.dart';
 import 'cella_senza_domanda.dart';
 import 'placca_domanda.dart';
 import '../../data/providers.dart';
@@ -25,7 +26,7 @@ class PartitaPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final partitaAsync = ref.watch(partitaProvider(partitaId));
+    final partitaAsync = ref.watch(partitaVisualizzataProvider(partitaId));
 
     return partitaAsync.when(
       loading: () =>
@@ -85,7 +86,7 @@ class _GrigliaPartita extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final fetta = ref.watch(
-      partitaProvider(partitaId).select(
+      partitaVisualizzataProvider(partitaId).select(
         (async) => async.whenData(
           (p) => (giocate: p.chiaveCelleGiocate, inCorso: p.inCorso),
         ),
@@ -161,7 +162,8 @@ class _PartitaBody extends ConsumerWidget {
                   ),
                 ),
               ),
-              BarraSquadre(partitaId: partita.id),
+              StrisciaAzioniInAttesa(partitaId: partita.id),
+            BarraSquadre(partitaId: partita.id),
             ],
           ),
         ),
@@ -430,7 +432,7 @@ class BarraSquadre extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(
-      partitaProvider(partitaId).select(
+      partitaVisualizzataProvider(partitaId).select(
         (a) => a.whenData((p) => p.chiaveSquadre),
       ),
     );
@@ -488,14 +490,24 @@ class BarraSquadre extends ConsumerWidget {
                           // cosa e' tornato indietro invece di farlo in
                           // silenzio. Con un host che sbaglia ad assegnare i
                           // punti, e' l'informazione piu' utile dell'app.
-                          final nome = partita.squadre
-                              .where((s) => s.id == evento.squadraId)
-                              .map((s) => s.nome)
-                              .firstOrNull;
+                          // Nullo significa che e' stata tolta un'azione
+                          // dalla coda: il server non l'aveva mai vista,
+                          // quindi non c'e' nessun evento da raccontare.
+                          final String messaggio;
+                          if (evento == null) {
+                            messaggio = 'Annullata: era in attesa, '
+                                'non era ancora arrivata al server';
+                          } else {
+                            final nome = partita.squadre
+                                .where((s) => s.id == evento.squadraId)
+                                .map((s) => s.nome)
+                                .firstOrNull;
+                            messaggio =
+                                'Annullato: ${evento.descrizione(nome)}';
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text(
-                                  'Annullato: ${evento.descrizione(nome)}'),
+                              content: Text(messaggio),
                               behavior: SnackBarBehavior.floating,
                             ),
                           );
