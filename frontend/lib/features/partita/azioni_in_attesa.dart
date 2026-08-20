@@ -63,7 +63,7 @@ class StrisciaAzioniInAttesa extends ConsumerWidget {
                         Tipografia.corpoRilievo.copyWith(color: Colori.segnale),
                   ),
                   const SizedBox(height: Misure.s1),
-                  Text(
+                  const Text(
                     'Puoi continuare a giocare: i punteggi che vedi sono '
                     'aggiornati. Quando la rete torna, tocca Riprova e '
                     "partiranno nell'ordine in cui le hai fatte.",
