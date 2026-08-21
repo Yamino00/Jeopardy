@@ -13,6 +13,7 @@ import it.quiz.jeopardy.comune.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,10 +23,14 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.IntFunction;
+import java.util.stream.Collectors;
 
 /**
  * Generation pipeline. Order matters, and the LLM is the last resort:
@@ -78,12 +83,19 @@ public class GenerationService {
         this.overprovisioning = overprovisioning;
     }
 
-    /** Endpoint a grana fine: una sola difficolta'. */
+    /**
+     * Endpoint a grana fine: una sola difficolta'.
+     *
+     * <p>Non ripiega su domande gia' viste dal client: chi chiama questo
+     * metodo sta chiedendo qualcosa di nuovo, e una risposta vuota e' una
+     * risposta legittima. Vedi {@link Ripiego}.
+     */
     @Transactional
     public GenerationResultDto generate(UUID clientId, Long argomentoId,
-                                        String sottoArgomento, short difficolta, int numero) {
+                                        String sottoArgomento, short difficolta, int numero,
+                                        Scadenza scadenza) {
         Esito esito = generaPerFasce(clientId, argomentoId, sottoArgomento,
-                Map.of(difficolta, numero));
+                Map.of(difficolta, numero), scadenza, Ripiego.SOLO_NUOVE_PER_IL_CLIENT);
         List<DomandaDto> domande = esito.perDifficolta().getOrDefault(difficolta, List.of())
                 .stream().map(DomandaDto::from).toList();
         return new GenerationResultDto(domande, esito.riusate(), esito.nuove(),
@@ -96,7 +108,8 @@ public class GenerationService {
      */
     @Transactional
     public Esito generaPerFasce(UUID clientId, Long argomentoId, String sottoArgomento,
-                                Map<Short, Integer> richieste) {
+                                Map<Short, Integer> richieste, Scadenza scadenza,
+                                Ripiego ripiego) {
         Argomento argomento = argomentoRepository.findById(argomentoId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Argomento " + argomentoId + " non trovato"));
@@ -122,8 +135,12 @@ public class GenerationService {
             return new Esito(disponibili, totaleRiusate, 0, 0, false);
         }
 
-        // 2. Una sola chiamata per tutto cio' che manca
-        quotaService.consumeGeneration(clientId);
+        // 2. Una sola chiamata per tutto cio' che manca. La quota si controlla
+        // adesso ma si consuma dopo: cominciare un lavoro lungo che la quota
+        // gia' vieta fa aspettare l'utente per niente, e addebitarlo prima di
+        // sapere se l'LLM ha risposto lo fa pagare per niente
+        quotaService.verificaDisponibilita(clientId);
+        scadenza.verifica("la preparazione della richiesta all'IA");
 
         List<GenerationRequest.QuotaDifficolta> quote = mancanti.entrySet().stream()
                 .map(e -> new GenerationRequest.QuotaDifficolta(e.getKey(), e.getValue()))
@@ -139,7 +156,10 @@ public class GenerationService {
 
         List<String> blocklist = domandaRepository.findEntitaCanonicheByArgomento(argomentoId);
         GenerationOutcome outcome = questionGenerator.generate(new GenerationRequest(
-                argomento.getNome(), sottoArgomento, conRiserva, blocklist));
+                argomento.getNome(), sottoArgomento, conRiserva, blocklist, scadenza));
+
+        // L'LLM ha risposto: adesso la generazione e' stata davvero erogata
+        quotaService.consumeGeneration(clientId);
 
         // 3. Validazione + deduplicazione + inserimento
         List<CandidateQuestion> candidati = validateAndNormalize(outcome, sottoArgomento);
@@ -159,8 +179,7 @@ public class GenerationService {
         recordGenerazione(clientId, argomentoId, outcome, dedup.accettate().size());
 
         // 4. Completa le fasce ancora scoperte, prima con la difficolta' esatta
-        // poi con qualunque altra: meglio una domanda di fascia vicina che una
-        // cella vuota
+        // poi con qualunque altra fra le nuove
         for (Map.Entry<Short, Integer> richiesta : richieste.entrySet()) {
             short difficolta = richiesta.getKey();
             List<Domanda> lista = disponibili.get(difficolta);
@@ -169,15 +188,74 @@ public class GenerationService {
                 lista.add(esatte.poll());
             }
             while (lista.size() < richiesta.getValue()) {
-                Domanda ripiego = qualsiasiDisponibile(nuovePerDifficolta);
-                if (ripiego == null) {
+                Domanda daAltraFascia = qualsiasiDisponibile(nuovePerDifficolta);
+                if (daAltraFascia == null) {
                     break;
                 }
-                lista.add(ripiego);
+                lista.add(daAltraFascia);
             }
         }
 
+        // 5. Se dopo l'LLM manca ancora qualcosa, si ripiega sulla banca invece
+        // di lasciare un buco: prima domande mai viste da questo client anche
+        // se di un'altra fascia, poi domande che ha gia' visto. Una ripetizione
+        // si nota; una cella con scritto "Domanda da completare" e' rotta
+        completaDallaBanca(clientId, argomentoId, sottoArgomento, richieste, disponibili, ripiego);
+
         return new Esito(disponibili, totaleRiusate, inserite, dedup.scartate().size(), true);
+    }
+
+    /**
+     * Riempie le fasce ancora scoperte pescando dalla banca, allentando i
+     * vincoli un gradino per volta. Non tocca il vincolo unico su
+     * {@code (argomento_id, entita_canonica)}: qui si sceglie fra domande che
+     * esistono gia', non se ne creano di nuove.
+     */
+    private void completaDallaBanca(UUID clientId, Long argomentoId, String sottoArgomento,
+                                    Map<Short, Integer> richieste,
+                                    Map<Short, List<Domanda>> disponibili,
+                                    Ripiego ripiego) {
+        Set<Long> giaScelte = disponibili.values().stream()
+                .flatMap(List::stream)
+                .map(Domanda::getId)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        // I gradini si valutano pigramente: il secondo interroga il database
+        // solo se il primo non e' bastato
+        List<IntFunction<List<Domanda>>> gradini = new ArrayList<>();
+        gradini.add(mancano -> domandaRepository.findRipiegoNonUsateDalClient(
+                argomentoId, sottoArgomento, clientId,
+                esclusioni(giaScelte), PageRequest.ofSize(mancano)));
+        if (ripiego == Ripiego.ANCHE_GIA_VISTE) {
+            gradini.add(mancano -> domandaRepository.findRipiegoAncheGiaUsate(
+                    argomentoId, sottoArgomento,
+                    esclusioni(giaScelte), PageRequest.ofSize(mancano)));
+        }
+
+        for (Map.Entry<Short, Integer> richiesta : richieste.entrySet()) {
+            List<Domanda> lista = disponibili.get(richiesta.getKey());
+
+            for (IntFunction<List<Domanda>> gradino : gradini) {
+                int mancano = richiesta.getValue() - lista.size();
+                if (mancano <= 0) {
+                    break;
+                }
+                for (Domanda domanda : gradino.apply(mancano)) {
+                    if (lista.size() >= richiesta.getValue()) {
+                        break;
+                    }
+                    giaScelte.add(domanda.getId());
+                    log.info("Cella completata dalla banca con la domanda {} (fascia {})",
+                            domanda.getId(), domanda.getDifficolta());
+                    lista.add(domanda);
+                }
+            }
+        }
+    }
+
+    /** {@code not in ()} non e' SQL valido: la lista non deve mai essere vuota. */
+    private static List<Long> esclusioni(Set<Long> giaScelte) {
+        return giaScelte.isEmpty() ? List.of(-1L) : List.copyOf(giaScelte);
     }
 
     private static Domanda qualsiasiDisponibile(Map<Short, Deque<Domanda>> per) {

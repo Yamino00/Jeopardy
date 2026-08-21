@@ -60,6 +60,21 @@ public class Cella {
         return domanda == null ? null : domanda.getTesto();
     }
 
+    /**
+     * L'id della domanda condivisa <b>che si sta effettivamente leggendo</b>,
+     * o {@code null} se non se ne sta leggendo nessuna.
+     *
+     * Un override rende la cella muta su questo punto di proposito: il testo a
+     * schermo e' quello del proprietario del tabellone, e una segnalazione
+     * partita da li' accuserebbe una domanda che nessuno ha visto.
+     */
+    public Long idDomandaVisibile() {
+        if (domanda == null || testoOverride != null) {
+            return null;
+        }
+        return domanda.getId();
+    }
+
     public String rispostaEffettiva() {
         if (rispostaOverride != null) {
             return rispostaOverride;

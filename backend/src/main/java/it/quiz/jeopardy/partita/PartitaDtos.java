@@ -87,6 +87,28 @@ public final class PartitaDtos {
         }
     }
 
+    /**
+     * Esito di un annullamento.
+     *
+     * <p>"Non c'e' niente da annullare" e' lo stato normale a partita appena
+     * aperta, non un guasto: prima era un 409, e l'host che premeva annulla per
+     * sbaglio si vedeva un errore. Adesso e' un 200 con
+     * {@code annullato: false} e nessun evento.
+     *
+     * @param evento    l'evento annullato, {@code null} se non ce n'erano
+     * @param annullato se qualcosa e' stato davvero annullato
+     */
+    public record AnnullamentoDto(EventoDto evento, boolean annullato) {
+
+        public static AnnullamentoDto fatto(EventoPartita evento) {
+            return new AnnullamentoDto(EventoDto.from(evento), true);
+        }
+
+        public static AnnullamentoDto nienteDaAnnullare() {
+            return new AnnullamentoDto(null, false);
+        }
+    }
+
     public record PartitaDto(
             Long id,
             String codiceTabellone,

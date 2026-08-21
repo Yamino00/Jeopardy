@@ -289,6 +289,11 @@ void main() {
         find.textContaining('Consuma una delle generazioni giornaliere'),
         findsOneWidget,
       );
+      expect(
+        find.textContaining('solo se l\'IA risponde'),
+        findsOneWidget,
+        reason: 'un tentativo andato a vuoto non costa piu una generazione',
+      );
     });
 
     testWidgets('chi non lo ha vede solo il passa', (tester) async {
@@ -298,7 +303,7 @@ void main() {
       expect(find.byKey(const Key('passa-cella-rotta')), findsOneWidget);
     });
 
-    testWidgets('col 409 la rigenerazione sparisce e resta la mano',
+    testWidgets('a banca esaurita la rigenerazione sparisce e resta la mano',
         (tester) async {
       // Il punto del gate: con la banca esaurita la cella deve restare
       // recuperabile. Insistere sulla rigenerazione consumerebbe solo quota.

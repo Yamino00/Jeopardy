@@ -59,11 +59,17 @@ public class TabelloneController {
         return tabelloneService.update(codicePubblico, codiceModifica, request);
     }
 
+    /**
+     * Risponde 200 anche quando non c'e' nulla da sostituire: l'esaurimento
+     * delle alternative e' un esito previsto, e {@code rigenerata} nel corpo
+     * lo distingue dal successo. Vedi {@link TabelloneDtos.RigenerazioneDto}.
+     */
     @PostMapping("/{codicePubblico}/celle/{cellaId}/rigenera")
-    public TabelloneDtos.CellaDto rigenera(@PathVariable String codicePubblico,
-                                           @RequestHeader(name = EDIT_CODE_HEADER, required = false)
-                                           String codiceModifica,
-                                           @PathVariable Long cellaId) {
+    public TabelloneDtos.RigenerazioneDto rigenera(@PathVariable String codicePubblico,
+                                                   @RequestHeader(name = EDIT_CODE_HEADER,
+                                                           required = false)
+                                                   String codiceModifica,
+                                                   @PathVariable Long cellaId) {
         return tabelloneService.rigenera(codicePubblico, codiceModifica, cellaId);
     }
 }

@@ -1,6 +1,27 @@
+# Il contesto di build finisce nel demone Docker e, per quel che ne sa il
+# Dockerfile, dentro l'immagine. Su un'immagine pubblica su ghcr.io questo
+# smette di essere un problema di lentezza e diventa un problema di segreti.
+
+# Artefatti di build: il Dockerfile ricompila da zero, e `target/` si porta
+# dietro avanzi di rami vecchi
 target/
+
+# Il wrapper Maven: dentro l'immagine di build c'e' gia' `mvn`
 .mvn/
 mvnw
 mvnw.cmd
-*.iml
+
+# Cronologia e configurazione locale
+.git/
+.gitignore
 .idea/
+*.iml
+
+# Segreti: non dovrebbero stare qui, ma se un giorno ci finiscono
+# non devono partire lo stesso
+.env
+.env.*
+!.env.example
+
+# Documentazione e note: nulla di tutto cio' serve a compilare
+*.md

@@ -10,6 +10,9 @@ import it.quiz.jeopardy.banca.DomandaRepository;
 import it.quiz.jeopardy.banca.StatoDomanda;
 import it.quiz.jeopardy.comune.Normalizer;
 import it.quiz.jeopardy.ia.FakeGeneratorConfiguration;
+import it.quiz.jeopardy.ia.FakeQuestionGenerator;
+import it.quiz.jeopardy.ia.GenerationOutcome;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +23,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -51,6 +56,27 @@ class TabelloneIntegrationTest {
 
     @Autowired
     private ArgomentoRepository argomentoRepository;
+
+    @Autowired
+    private FakeQuestionGenerator fakeGenerator;
+
+    @BeforeEach
+    void resetFake() {
+        fakeGenerator.reset();
+    }
+
+    /**
+     * Porta a RITIRATA ogni domanda dell'argomento: le celle gia' create
+     * continuano a mostrarla, ma nessuna query di ripiego la ripesca.
+     */
+    private void ritiraTutteLeDomande(String nomeArgomento) {
+        String slug = Normalizer.toCanonical(nomeArgomento).replace(' ', '-');
+        Argomento argomento = argomentoRepository.findBySlugAndLingua(slug, "it").orElseThrow();
+        List<Domanda> attive = domandaRepository
+                .findByArgomentoIdAndStato(argomento.getId(), StatoDomanda.ATTIVA);
+        attive.forEach(d -> d.setStato(StatoDomanda.RITIRATA));
+        domandaRepository.saveAll(attive);
+    }
 
     private JsonNode createBoard(String clientId, String titolo, String... argomenti) throws Exception {
         StringBuilder args = new StringBuilder();
@@ -181,6 +207,26 @@ class TabelloneIntegrationTest {
                 .extracting(Domanda::getTesto)
                 .contains(testoOriginale)
                 .doesNotContain("Testo personalizzato?");
+
+        // E la cella non espone piu' un id da segnalare: il testo a schermo e'
+        // dell'host, non della banca
+        assertThat(updated.get("categorie").get(0).get("celle").get(0)
+                .get("domanda_id").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Ogni cella espone l'id della domanda, che rende segnalabile la cella")
+    void cells_exposeQuestionId() throws Exception {
+        String clientId = UUID.randomUUID().toString();
+        JsonNode board = createBoard(clientId, "Segnalabile", "Astronomia FASE4");
+
+        for (JsonNode categoria : board.get("categorie")) {
+            for (JsonNode cella : categoria.get("celle")) {
+                long domandaId = cella.get("domanda_id").asLong();
+                assertThat(domandaId).isPositive();
+                assertThat(domandaRepository.findById(domandaId)).isPresent();
+            }
+        }
     }
 
     @Test
@@ -201,8 +247,76 @@ class TabelloneIntegrationTest {
                                 .header("X-Codice-Modifica", codiceModifica))
                 .andExpect(status().isOk())
                 .andReturn();
-        JsonNode nuova = objectMapper.readTree(result.getResponse().getContentAsString());
-        assertThat(nuova.get("testo").asText()).isNotEqualTo(testoPrima);
+        JsonNode esito = objectMapper.readTree(result.getResponse().getContentAsString());
+        assertThat(esito.get("rigenerata").asBoolean()).isTrue();
+        assertThat(esito.get("cella").get("testo").asText()).isNotEqualTo(testoPrima);
+    }
+
+    @Test
+    @DisplayName("Rigenera senza alternative: 200 con rigenerata=false, non un errore")
+    void regenerateWithoutAlternatives_is200NotAnError() throws Exception {
+        String clientId = UUID.randomUUID().toString();
+        String argomento = "Argomento senza scorte FASE4";
+        JsonNode board = createBoard(clientId, "Esaurito", argomento);
+
+        String codice = board.get("codice_pubblico").asText();
+        String codiceModifica = board.get("codice_modifica").asText();
+        long cellaId = board.get("categorie").get(0).get("celle").get(0).get("id").asLong();
+
+        // Svuota la banca per questo argomento: le domande gia' sul tabellone
+        // restano visibili, ma nessuna e' piu' pescabile
+        ritiraTutteLeDomande(argomento);
+        // E l'IA non produce niente di nuovo. Insieme, e' la condizione
+        // "argomento esaurito", che e' un esito normale del gioco
+        fakeGenerator.enqueue(new GenerationOutcome(List.of(), "fake-model", 0, 0));
+
+        mockMvc.perform(post("/api/tabelloni/" + codice + "/celle/" + cellaId + "/rigenera")
+                        .header("X-Client-Id", clientId)
+                        .header("X-Codice-Modifica", codiceModifica))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rigenerata").value(false))
+                .andExpect(jsonPath("$.motivo").value("nessuna_alternativa_disponibile"))
+                .andExpect(jsonPath("$.cella.id").value(cellaId));
+    }
+
+    @Test
+    @DisplayName("Ogni tabellone ha una e una sola cella Daily Double, mai sulla riga piu' facile")
+    void everyBoard_hasExactlyOneDailyDouble() throws Exception {
+        JsonNode board = createBoard(UUID.randomUUID().toString(),
+                "Con Daily Double", "Geografia FASE4");
+
+        List<JsonNode> dailyDoubles = new ArrayList<>();
+        for (JsonNode categoria : board.get("categorie")) {
+            for (JsonNode cella : categoria.get("celle")) {
+                if (cella.get("daily_double").asBoolean()) {
+                    dailyDoubles.add(cella);
+                }
+            }
+        }
+
+        assertThat(dailyDoubles).hasSize(1);
+        assertThat(dailyDoubles.get(0).get("riga").asInt())
+                .as("raddoppiare la posta piu' bassa non cambierebbe niente")
+                .isGreaterThan(1);
+    }
+
+    @Test
+    @DisplayName("Nessuna cella segnaposto: ogni cella ha una domanda vera")
+    void noBoardCell_isAPlaceholder() throws Exception {
+        JsonNode board = createBoard(UUID.randomUUID().toString(),
+                "Senza buchi", "Musica FASE4");
+
+        for (JsonNode categoria : board.get("categorie")) {
+            for (JsonNode cella : categoria.get("celle")) {
+                assertThat(cella.get("testo").asText())
+                        .isNotBlank()
+                        .isNotEqualTo("Domanda da completare");
+                assertThat(cella.get("risposta").asText()).isNotBlank();
+                assertThat(cella.get("domanda_id").isNull())
+                        .as("una cella senza domanda condivisa non e' segnalabile")
+                        .isFalse();
+            }
+        }
     }
 
     @Test

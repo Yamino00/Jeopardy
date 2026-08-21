@@ -258,6 +258,53 @@ class PartitaIntegrationTest {
     }
 
     @Test
+    @DisplayName("A partita conclusa il server rifiuta anche modifiche e annullamenti")
+    void concludi_alsoBlocksSquadreAndUndo() throws Exception {
+        String client = clientId();
+        JsonNode board = createBoard(client, "Partita bloccata F5");
+        JsonNode partita = startPartita(client, board.get("codice_pubblico").asText());
+        long partitaId = partita.get("id").asLong();
+        long squadraA = partita.get("squadre").get(0).get("id").asLong();
+
+        mockMvc.perform(post("/api/partite/" + partitaId + "/concludi")
+                        .header("X-Client-Id", client))
+                .andExpect(status().isOk());
+
+        // Il client gia' impone questi tre divieti: prima il server no, ed
+        // era il server a essere piu' permissivo del suo unico chiamante
+        mockMvc.perform(patch("/api/partite/" + partitaId + "/squadre/" + squadraA)
+                        .header("X-Client-Id", client)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"punteggio\": 9999}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/partite/" + partitaId + "/squadre/" + squadraA)
+                        .header("X-Client-Id", client))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/partite/" + partitaId + "/annulla")
+                        .header("X-Client-Id", client))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Annulla senza eventi: 200 con annullato=false, non un errore")
+    void undoWithNothingToUndo_is200NotAnError() throws Exception {
+        String client = clientId();
+        JsonNode board = createBoard(client, "Partita appena aperta F5");
+        JsonNode partita = startPartita(client, board.get("codice_pubblico").asText());
+        long partitaId = partita.get("id").asLong();
+
+        // Nessuna giocata: e' lo stato normale a partita appena cominciata, e
+        // l'host che preme annulla di riflesso non deve vedere un errore
+        mockMvc.perform(post("/api/partite/" + partitaId + "/annulla")
+                        .header("X-Client-Id", client))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.annullato").value(false))
+                .andExpect(jsonPath("$.evento").isEmpty());
+    }
+
+    @Test
     @DisplayName("Il job di pulizia rimuove solo le partite scadute non concluse")
     void cleanupJob_removesOnlyExpiredUnfinishedGames() throws Exception {
         String client = clientId();

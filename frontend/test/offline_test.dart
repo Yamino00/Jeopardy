@@ -294,10 +294,11 @@ void main() {
       await gioca(12, 500);
       expect(_punti(mostrata(), 1), 1000);
 
-      final evento =
+      final esito =
           await contenitore.read(partitaProvider(1).notifier).annulla();
 
-      expect(evento, isNull, reason: 'non c e nessun evento del server');
+      expect(esito, isA<AnnullataAzioneInAttesa>(),
+          reason: 'non c e nessun evento del server: era solo in coda');
       expect(coda().length, 1);
       expect(_punti(mostrata(), 1), 500);
       expect(mostrata().cellaGiaGiocata(12), isFalse);

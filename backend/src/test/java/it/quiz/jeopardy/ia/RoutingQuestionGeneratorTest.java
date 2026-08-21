@@ -4,11 +4,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.type;
 
 /**
  * Il router e' cio' che tiene in piedi la creazione di un tabellone quando un
@@ -17,8 +20,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class RoutingQuestionGeneratorTest {
 
-    private static final GenerationRequest RICHIESTA =
-            GenerationRequest.singola("Storia", null, (short) 3, 3, List.of());
+    private static GenerationRequest richiesta() {
+        return GenerationRequest.singola("Storia", null, (short) 3, 3, List.of(),
+                Scadenza.fra(Duration.ofMinutes(5)));
+    }
+
+    private static final GenerationRequest RICHIESTA = richiesta();
 
     /** Un solo giro e nessuna attesa: i test non devono dormire. */
     private static RoutingQuestionGenerator router(List<LlmProvider> providers) {
@@ -113,16 +120,74 @@ class RoutingQuestionGeneratorTest {
         assertThat(provider.chiamate()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("Budget gia' esaurito: nessun provider viene chiamato, e la risposta e' 504")
+    void deadlineAlreadyPassed_doesNotCallAnyProvider() {
+        FakeProvider provider = new FakeProvider("a", true);
+        RoutingQuestionGenerator router = router(List.of(provider));
+
+        GenerationRequest scaduta = GenerationRequest.singola(
+                "Storia", null, (short) 3, 3, List.of(),
+                new Scadenza(Instant.now().minusSeconds(1)));
+
+        assertThatThrownBy(() -> router.generate(scaduta))
+                .isInstanceOf(ResponseStatusException.class)
+                .asInstanceOf(type(ResponseStatusException.class))
+                .extracting(e -> e.getStatusCode().value())
+                .isEqualTo(504);
+        assertThat(provider.chiamate()).isZero();
+    }
+
+    @Test
+    @DisplayName("Se nel budget non ci sta una chiamata intera, non si parte nemmeno")
+    void notEnoughBudgetForAWholeCall_doesNotStart() {
+        // Il provider dichiara di poter far aspettare 30s; ne restano 2
+        FakeProvider lento = new FakeProvider("lento", true).conTimeout(Duration.ofSeconds(30));
+        RoutingQuestionGenerator router = router(List.of(lento));
+
+        GenerationRequest quasiScaduta = GenerationRequest.singola(
+                "Storia", null, (short) 3, 3, List.of(),
+                Scadenza.fra(Duration.ofSeconds(2)));
+
+        assertThatThrownBy(() -> router.generate(quasiScaduta))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(lento.chiamate()).isZero();
+    }
+
+    @Test
+    @DisplayName("Col budget stretto si rinuncia al secondo giro invece di aspettare")
+    void tightBudget_skipsTheRetryRound() {
+        FakeProvider provider = new FakeProvider("a", true).cheFallisce()
+                .conTimeout(Duration.ofSeconds(10));
+        // Attesa fra i giri di 30s: nel budget di 12s non ci sta, quindi il
+        // secondo giro non deve nemmeno cominciare
+        var router = new RoutingQuestionGenerator(List.of(provider), 2, 30);
+
+        GenerationRequest stretta = GenerationRequest.singola(
+                "Storia", null, (short) 3, 3, List.of(),
+                Scadenza.fra(Duration.ofSeconds(12)));
+
+        assertThatThrownBy(() -> router.generate(stretta))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(provider.chiamate()).isEqualTo(1);
+    }
+
     private static final class FakeProvider implements LlmProvider {
         private final String nome;
         private final boolean configurato;
         private final AtomicInteger chiamate = new AtomicInteger();
         private boolean fallisce;
         private boolean vuoto;
+        private Duration timeout = Duration.ofSeconds(1);
 
         FakeProvider(String nome, boolean configurato) {
             this.nome = nome;
             this.configurato = configurato;
+        }
+
+        FakeProvider conTimeout(Duration timeout) {
+            this.timeout = timeout;
+            return this;
         }
 
         FakeProvider cheFallisce() {
@@ -147,6 +212,11 @@ class RoutingQuestionGeneratorTest {
         @Override
         public boolean configurato() {
             return configurato;
+        }
+
+        @Override
+        public Duration timeoutRisposta() {
+            return timeout;
         }
 
         @Override

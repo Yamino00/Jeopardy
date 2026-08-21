@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 import '../storage/client_id_storage.dart';
@@ -37,6 +39,30 @@ class ApiClient {
   final Dio _dio;
 
   Dio get dio => _dio;
+
+  /// Sveglia il backend senza aspettarlo.
+  ///
+  /// In produzione il servizio scende a zero istanze quando nessuno gioca, e
+  /// paga l'avvio della JVM alla prima richiesta: misurato, sono una ventina
+  /// di secondi. Se la prima richiesta è quella con cui l'host crea davvero un
+  /// tabellone, quei secondi se li aspetta lui guardando uno schermo fermo.
+  ///
+  /// Chiamando questo all'apertura dell'app, il container si scalda mentre
+  /// l'host è ancora sulla home a scegliere gli argomenti, e quando preme il
+  /// pulsante il server è già in piedi.
+  ///
+  /// Non attende e non solleva: se la rete non c'è, non è successo niente —
+  /// se ne accorgerà la prima richiesta vera, che sa già come raccontarlo.
+  void risveglia() {
+    unawaited(
+      _dio
+          .get<void>(
+            '/api/salute/vivo',
+            options: Options(receiveTimeout: const Duration(seconds: 45)),
+          )
+          .then((_) {}, onError: (_) {}),
+    );
+  }
 
   /// Trasforma un errore di Dio in un [ErroreApi], che la UI sa raccontare.
   static Never rilanciaComeErroreApi(DioException e) => throw ErroreApi.da(e);

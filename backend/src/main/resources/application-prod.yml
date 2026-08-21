@@ -1,0 +1,68 @@
+# =====================================================================
+# Profilo di produzione — attivare con SPRING_PROFILES_ACTIVE=prod
+#
+# Qui non c'e' nessun segreto e non deve arrivarcene mai uno: le chiavi
+# e le credenziali stanno nelle impostazioni applicative del servizio,
+# e questo file si limita a dire da quali variabili leggerle.
+# =====================================================================
+
+spring:
+  datasource:
+    # DB_URL deve gia' contenere ?sslmode=require: il database gestito
+    # rifiuta le connessioni in chiaro, e senza quel parametro l'avvio
+    # fallisce sulla prima migrazione Flyway con un errore di rete che
+    # non dice quale sia il vero problema.
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      # Il servizio gira su una sola replica piccola e le richieste sono
+      # poche e lunghe: cinque connessioni sono gia' abbondanti, e ogni
+      # connessione in piu' e' memoria tolta alla JVM.
+      maximum-pool-size: 5
+      # Il punto vero e' questo. Il database si sospende da solo dopo
+      # qualche minuto senza traffico, ed e' cosi' che resta gratuito: un
+      # pool che tiene connessioni aperte a vuoto lo tiene sveglio e ne
+      # consuma le ore di calcolo mentre nessuno sta giocando. A zero
+      # minimo, finita la partita il pool si svuota e il database dorme.
+      minimum-idle: 0
+      idle-timeout: 30000
+      # Piu' corto della finestra di sospensione: una connessione che il
+      # database ha gia' chiuso dall'altro capo non deve restare nel pool
+      # ad aspettare di essere scoperta da una query vera.
+      max-lifetime: 240000
+      connection-timeout: 10000
+  jpa:
+    show-sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+  lifecycle:
+    # Quanto si aspettano le richieste in volo prima di staccare comunque.
+    # Non serve arrivare al budget di creazione di un tabellone: oltre
+    # mezzo minuto la piattaforma ha gia' deciso per conto suo.
+    timeout-per-shutdown-phase: 30s
+
+server:
+  # La piattaforma manda SIGTERM quando spegne la replica per inattivita'.
+  # Senza questo, una creazione di tabellone in corso viene troncata a
+  # meta' transazione mentre l'utente sta ancora aspettando.
+  shutdown: graceful
+
+app:
+  cors:
+    # Il client Android non fa preflight CORS — e' una regola dei browser —
+    # ma lasciare '*' significa che qualunque pagina web puo' chiamare
+    # questa API dal browser di chiunque. Impostare CORS_ALLOWED_ORIGINS
+    # con le origini vere, o lasciare la lista vuota se non serve nessuno.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
+logging:
+  level:
+    root: WARN
+    it.quiz.jeopardy: INFO
+  # Su Container Apps i log vanno su stdout e vengono letti in diretta con
+  # `az containerapp logs show`: senza timestamp non sono correlabili a
+  # niente. Non c'e' storico, quindi quel che si vede e' quel che c'e'.
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n"

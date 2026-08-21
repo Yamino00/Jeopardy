@@ -104,11 +104,18 @@ class PartitaRepository {
 
   /// Restituisce **l'evento che è stato annullato**, così la UI può dire cosa
   /// ha annullato invece di limitarsi a farlo in silenzio.
-  Future<EventoPartita> annulla(int partitaId) async {
+  ///
+  /// È `null` quando non c'era niente da annullare: il registro vuoto è lo
+  /// stato normale a partita appena aperta, e il server lo dice con un 200 e
+  /// `annullato: false`, non con un errore. L'host che preme il pulsante di
+  /// riflesso non deve vedere un allarme.
+  Future<EventoPartita?> annulla(int partitaId) async {
     try {
       final response = await _api.dio
           .post<Map<String, dynamic>>('/api/partite/$partitaId/annulla');
-      return EventoPartita.fromJson(response.data!);
+      final corpo = response.data!;
+      if (!(corpo['annullato'] as bool? ?? false)) return null;
+      return EventoPartita.fromJson(corpo['evento'] as Map<String, dynamic>);
     } on DioException catch (e) {
       ApiClient.rilanciaComeErroreApi(e);
     }

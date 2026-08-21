@@ -7,10 +7,10 @@ import '../models/tabellone.dart';
 
 /// L'esito di una rigenerazione.
 ///
-/// Il 409 del backend ("Nessuna domanda alternativa disponibile per questa
-/// cella") non è un errore: su un argomento stretto è un **esito atteso**, e la
-/// UI deve poterlo trattare come tale invece di mostrare uno snackbar rosso col
-/// testo del server. Da qui un tipo di ritorno che lo nomina.
+/// "Non ci sono altre domande per questa cella" non è un errore: su un
+/// argomento stretto è un **esito atteso**. Il backend lo dice con un 200 e
+/// `rigenerata: false`, non più con un 409, proprio perché la UI possa
+/// trattarlo come tale senza doverlo pescare fra gli errori veri.
 sealed class EsitoRigenerazione {
   const EsitoRigenerazione();
 }
@@ -22,12 +22,10 @@ class RigenerazioneRiuscita extends EsitoRigenerazione {
 
 /// La banca non ha altre domande per questo argomento.
 ///
-/// Attenzione, e va detto nella UI: `quotaService.consumeGeneration` è chiamato
-/// **prima** della richiesta al modello, quindi anche questo esito **ha
-/// consumato una delle generazioni giornaliere**. Non è un retry gratuito.
+/// Non porta con sé un messaggio: il `motivo` che arriva dal server è un
+/// codice per il codice, e come raccontarlo a chi gioca lo decide la UI.
 class NessunaAlternativa extends EsitoRigenerazione {
-  const NessunaAlternativa(this.messaggio);
-  final String messaggio;
+  const NessunaAlternativa();
 }
 
 class TabelloneRepository {
@@ -90,7 +88,8 @@ class TabelloneRepository {
   /// Rigenera la domanda di una cella. Richiede il codice di modifica, quindi
   /// è disponibile solo a chi ha creato il tabellone.
   ///
-  /// **Costa una generazione** del tetto giornaliero anche quando fallisce.
+  /// Costa una generazione del tetto giornaliero **solo se il modello
+  /// risponde**: un tentativo andato a vuoto non se ne porta via una.
   Future<EsitoRigenerazione> rigeneraCella({
     required String codicePubblico,
     required String codiceModifica,
@@ -101,13 +100,15 @@ class TabelloneRepository {
         '/api/tabelloni/$codicePubblico/celle/$cellaId/rigenera',
         options: Options(headers: {'X-Codice-Modifica': codiceModifica}),
       );
-      return RigenerazioneRiuscita(Cella.fromJson(response.data!));
-    } on DioException catch (e) {
-      final errore = ErroreApi.da(e);
-      if (errore.genere == GenereErrore.conflitto) {
-        return NessunaAlternativa(errore.messaggio);
+      final corpo = response.data!;
+      if (corpo['rigenerata'] as bool? ?? false) {
+        return RigenerazioneRiuscita(
+          Cella.fromJson(corpo['cella'] as Map<String, dynamic>),
+        );
       }
-      throw errore;
+      return const NessunaAlternativa();
+    } on DioException catch (e) {
+      throw ErroreApi.da(e);
     }
   }
 

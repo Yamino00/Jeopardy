@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,19 +34,26 @@ public class GroqQuestionGenerator implements LlmProvider {
     private final String apiKey;
     private final String modello;
     private final double temperature;
+    private final Duration timeoutConnessione;
+    private final Duration timeoutRisposta;
 
+    /** Built lazily: the JDK HttpClient opens sockets already at build time. */
     private volatile RestClient restClient;
 
     public GroqQuestionGenerator(ObjectMapper objectMapper,
                                  @Value("${app.ia.groq.endpoint}") String endpoint,
                                  @Value("${app.ia.groq.api-key:}") String apiKey,
                                  @Value("${app.ia.groq.modello}") String modello,
-                                 @Value("${app.ia.groq.temperature:0.9}") double temperature) {
+                                 @Value("${app.ia.groq.temperature:0.9}") double temperature,
+                                 @Value("${app.ia.timeout-connessione-secondi:5}") int timeoutConnessioneSecondi,
+                                 @Value("${app.ia.timeout-risposta-secondi:45}") int timeoutRispostaSecondi) {
         this.objectMapper = objectMapper;
         this.endpoint = endpoint;
         this.apiKey = apiKey;
         this.modello = modello;
         this.temperature = temperature;
+        this.timeoutConnessione = Duration.ofSeconds(timeoutConnessioneSecondi);
+        this.timeoutRisposta = Duration.ofSeconds(timeoutRispostaSecondi);
     }
 
     @Override
@@ -58,12 +66,18 @@ public class GroqQuestionGenerator implements LlmProvider {
         return apiKey != null && !apiKey.isBlank();
     }
 
+    @Override
+    public Duration timeoutRisposta() {
+        return timeoutRisposta;
+    }
+
     private RestClient restClient() {
         RestClient client = restClient;
         if (client == null) {
             synchronized (this) {
                 if (restClient == null) {
-                    restClient = RestClient.builder().baseUrl(endpoint).build();
+                    restClient = LlmRestClients.conTimeout(
+                            endpoint, timeoutConnessione, timeoutRisposta);
                 }
                 client = restClient;
             }
@@ -77,6 +91,7 @@ public class GroqQuestionGenerator implements LlmProvider {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Groq non configurato: impostare GROQ_API_KEY");
         }
+        request.scadenza().verifica("la chiamata a " + nome());
 
         Map<String, Object> body = Map.of(
                 "model", modello,

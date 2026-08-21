@@ -67,8 +67,12 @@ public class PartitaController {
         return partitaService.playCella(id, cellaId, request);
     }
 
+    /**
+     * Risponde 200 anche quando non c'era niente da annullare: lo dice
+     * {@code annullato} nel corpo. Vedi {@link PartitaDtos.AnnullamentoDto}.
+     */
     @PostMapping("/api/partite/{id}/annulla")
-    public EventoDto annulla(@PathVariable Long id) {
+    public PartitaDtos.AnnullamentoDto annulla(@PathVariable Long id) {
         return partitaService.annulla(id);
     }
 

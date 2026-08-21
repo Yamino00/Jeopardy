@@ -10,8 +10,10 @@ import '../../core/widgets/punteggio_palette.dart';
 import '../../core/widgets/tessera.dart';
 import 'azioni_in_attesa.dart';
 import 'cella_senza_domanda.dart';
+import 'dialog_segnalazione.dart';
 import 'placca_domanda.dart';
 import '../../data/providers.dart';
+import '../../data/segnalazione_repository.dart';
 import '../../data/tabellone_repository.dart';
 import '../../models/partita.dart';
 import '../../models/tabellone.dart';
@@ -320,6 +322,60 @@ class _CellaDialogState extends ConsumerState<CellaDialog> {
     }
   }
 
+  /// Segnala la domanda condivisa che sta dietro a questa cella.
+  ///
+  /// Non tocca la partita: la cella resta giocabile e i punti si assegnano
+  /// come sempre. Interrompere il gioco per una domanda sbagliata sarebbe il
+  /// rimedio peggiore del male — l'host ha già il gruppo che aspetta.
+  Future<void> _segnala() async {
+    final domandaId = _cella.domandaId;
+    if (domandaId == null) return;
+
+    final scelta = await showDialog<({MotivoSegnalazione motivo, String nota})>(
+      context: context,
+      builder: (_) => DialogSegnalazione(
+        nomeCategoria: widget.nomeCategoria,
+        valore: _cella.valore,
+      ),
+    );
+    if (scelta == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final esito = await ref.read(segnalazioneRepositoryProvider).segnala(
+            domandaId: domandaId,
+            motivo: scelta.motivo,
+            nota: scelta.nota,
+          );
+      if (!mounted) return;
+      ref.read(domandeSegnalateProvider.notifier).registra(domandaId);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(_confermaSegnalazione(esito)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (mounted) messenger.showSnackBar(barraErrore(e));
+    }
+  }
+
+  /// Cosa si dice all'host dopo la segnalazione: i tre esiti sono diversi e
+  /// meritano tre frasi diverse.
+  static String _confermaSegnalazione(EsitoSegnalazione esito) {
+    if (esito.giaSegnalata) {
+      return 'Avevi già segnalato questa domanda: conta una volta sola.';
+    }
+    if (esito.disattivata) {
+      return 'Segnalata. Questa domanda esce dalla banca: non comparirà più '
+          'nei tabelloni nuovi.';
+    }
+    final mancanti = esito.mancanti;
+    if (mancanti <= 0) return 'Segnalazione registrata, grazie.';
+    return 'Segnalazione registrata, grazie. Ne mancano $mancanti da altri '
+        'dispositivi perché la domanda esca dalla banca.';
+  }
+
   Future<void> _correggi(String codiceModifica) async {
     final correzione = await showDialog<({String testo, String risposta})>(
       context: context,
@@ -406,6 +462,13 @@ class _CellaDialogState extends ConsumerState<CellaDialog> {
                   ),
               ],
               onChiudi: () => Navigator.of(context).pop(),
+              // Nullo quando non c'è una domanda di banca dietro la cella —
+              // segnaposto, o cella riscritta a mano: allora il pulsante non
+              // c'è, invece di esserci spento.
+              onSegnala: _cella.segnalabile ? _segnala : null,
+              giaSegnalata: ref
+                  .watch(domandeSegnalateProvider)
+                  .contains(_cella.domandaId),
               onMostraRisposta: () => setState(() => _rispostaVisibile = true),
               onAssegna: (squadraId, positivo) => _gioca(
                 positivo ? 'corretta' : 'errata',
@@ -488,26 +551,26 @@ class BarraSquadre extends ConsumerWidget {
                 onTap: partita.inCorso
                     ? () async {
                         try {
-                          final evento = await notifier.annulla();
+                          final esito = await notifier.annulla();
                           if (!context.mounted) return;
                           // Il backend restituisce l'evento annullato: si dice
                           // cosa e' tornato indietro invece di farlo in
                           // silenzio. Con un host che sbaglia ad assegnare i
                           // punti, e' l'informazione piu' utile dell'app.
-                          // Nullo significa che e' stata tolta un'azione
-                          // dalla coda: il server non l'aveva mai vista,
-                          // quindi non c'e' nessun evento da raccontare.
                           final String messaggio;
-                          if (evento == null) {
-                            messaggio = 'Annullata: era in attesa, '
-                                'non era ancora arrivata al server';
-                          } else {
-                            final nome = partita.squadre
-                                .where((s) => s.id == evento.squadraId)
-                                .map((s) => s.nome)
-                                .firstOrNull;
-                            messaggio =
-                                'Annullato: ${evento.descrizione(nome)}';
+                          switch (esito) {
+                            case AnnullataAzioneInAttesa():
+                              messaggio = 'Annullata: era in attesa, '
+                                  'non era ancora arrivata al server';
+                            case NienteDaAnnullare():
+                              messaggio = 'Non c\'e\' niente da annullare';
+                            case AnnullatoEvento(evento: final evento):
+                              final nome = partita.squadre
+                                  .where((s) => s.id == evento.squadraId)
+                                  .map((s) => s.nome)
+                                  .firstOrNull;
+                              messaggio =
+                                  'Annullato: ${evento.descrizione(nome)}';
                           }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

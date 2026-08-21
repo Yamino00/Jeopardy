@@ -15,10 +15,14 @@ public class FakeQuestionGenerator implements QuestionGenerator {
 
     private final AtomicInteger calls = new AtomicInteger();
     private final Deque<GenerationOutcome> queued = new ArrayDeque<>();
+    private RuntimeException erroreDaLanciare;
 
     @Override
     public GenerationOutcome generate(GenerationRequest request) {
         calls.incrementAndGet();
+        if (erroreDaLanciare != null) {
+            throw erroreDaLanciare;
+        }
         if (!queued.isEmpty()) {
             return queued.pop();
         }
@@ -45,6 +49,11 @@ public class FakeQuestionGenerator implements QuestionGenerator {
         queued.add(outcome);
     }
 
+    /** Simula un provider che non risponde: serve a verificare cosa si paga. */
+    public void faiFallire(RuntimeException errore) {
+        this.erroreDaLanciare = errore;
+    }
+
     public int calls() {
         return calls.get();
     }
@@ -52,5 +61,6 @@ public class FakeQuestionGenerator implements QuestionGenerator {
     public void reset() {
         calls.set(0);
         queued.clear();
+        erroreDaLanciare = null;
     }
 }

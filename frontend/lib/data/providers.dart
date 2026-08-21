@@ -13,6 +13,7 @@ import '../models/evento.dart';
 import '../models/partita.dart';
 import '../models/tabellone.dart';
 import 'partita_repository.dart';
+import 'segnalazione_repository.dart';
 import 'tabellone_repository.dart';
 
 final clientIdStorageProvider = Provider<ClientIdStorage>(
@@ -54,6 +55,28 @@ final partitaRepositoryProvider = Provider<PartitaRepository>(
   (ref) => PartitaRepository(ref.watch(apiClientProvider)),
 );
 
+final segnalazioneRepositoryProvider = Provider<SegnalazioneRepository>(
+  (ref) => SegnalazioneRepository(ref.watch(apiClientProvider)),
+);
+
+/// Le domande che questo dispositivo ha già segnalato, in questa sessione.
+///
+/// Serve solo a spegnere il pulsante appena premuto invece di lasciarlo
+/// invitante: la verità sta sul server, che conta una segnalazione per
+/// dispositivo comunque. Non si persiste — riaprire l'app e riprovare
+/// costa una richiesta e restituisce un 200 innocuo.
+final domandeSegnalateProvider =
+    NotifierProvider<DomandeSegnalateNotifier, Set<int>>(
+  DomandeSegnalateNotifier.new,
+);
+
+class DomandeSegnalateNotifier extends Notifier<Set<int>> {
+  @override
+  Set<int> build() => const {};
+
+  void registra(int domandaId) => state = {...state, domandaId};
+}
+
 /// Board by public code. keepAlive: the game screen re-reads it without
 /// refetching, and the board itself never changes mid-game.
 final tabelloneProvider =
@@ -73,6 +96,34 @@ final partitaProvider =
     AsyncNotifierProvider.family<PartitaNotifier, Partita, int>(
   PartitaNotifier.new,
 );
+
+/// Che cosa ha prodotto un annulla.
+///
+/// Tre esiti, tutti normali, e la UI li racconta diversamente. Prima erano due
+/// più un errore: il caso "non c'era niente da annullare" arrivava come 409 e
+/// finiva nello stesso ramo di un guasto di rete. Restano tre casi distinti e
+/// non un `EventoPartita?`, perché `null` avrebbe dovuto significare due cose
+/// diverse — coda locale svuotata e registro del server vuoto — e la UI ne
+/// avrebbe raccontata una a caso.
+sealed class EsitoAnnulla {
+  const EsitoAnnulla();
+}
+
+/// Tolta dalla coda locale: il server non l'aveva mai vista.
+class AnnullataAzioneInAttesa extends EsitoAnnulla {
+  const AnnullataAzioneInAttesa();
+}
+
+/// Il server ha annullato questo evento.
+class AnnullatoEvento extends EsitoAnnulla {
+  const AnnullatoEvento(this.evento);
+  final EventoPartita evento;
+}
+
+/// Non c'era niente da annullare: partita appena aperta, o già tutto annullato.
+class NienteDaAnnullare extends EsitoAnnulla {
+  const NienteDaAnnullare();
+}
 
 /// L'ultimo evento annullato, per la partita indicata.
 ///
@@ -321,13 +372,19 @@ class PartitaNotifier extends FamilyAsyncNotifier<Partita, int> {
   /// per leggere il registro. Accodare un annulla alla cieca significherebbe
   /// rischiare di cancellare la mossa di un altro dispositivo — esattamente il
   /// guasto che questa app esiste per evitare. Meglio dire che non si può.
-  Future<EventoPartita?> annulla() async {
+  Future<EsitoAnnulla> annulla() async {
     final locale = await _coda.togliUltima();
-    if (locale != null) return null;
+    if (locale != null) return const AnnullataAzioneInAttesa();
     return _muta(() async {
       final evento = await _repo.annulla(arg);
+      if (evento == null) {
+        // Registro vuoto: non va segnato come "ultimo annullato", altrimenti
+        // la UI ripeterebbe la conferma precedente come se fosse appena
+        // successo qualcosa.
+        return const NienteDaAnnullare();
+      }
       ref.read(ultimoAnnullatoProvider(arg).notifier).registra(evento);
-      return evento;
+      return AnnullatoEvento(evento);
     });
   }
 

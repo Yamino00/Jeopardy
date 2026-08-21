@@ -76,8 +76,22 @@ public final class TabelloneDtos {
         }
     }
 
+    /**
+     * @param domandaId l'id nella banca condivisa <b>del testo che si sta
+     *                  leggendo</b>. Serve al client per raggiungere
+     *                  {@code POST /api/domande/{id}/segnalazioni}: senza,
+     *                  l'endpoint di segnalazione esisteva ma era
+     *                  irraggiungibile.
+     *                  <p>E' {@code null} quando la cella non ha una domanda
+     *                  (i vecchi tabelloni con celle segnaposto) e anche
+     *                  quando ne ha una ma il testo e' stato riscritto a mano:
+     *                  in quel caso chi gioca legge l'override, non la domanda
+     *                  condivisa, e segnalarla significherebbe accusare un
+     *                  testo mai visto.
+     */
     public record CellaDto(
             Long id,
+            Long domandaId,
             short riga,
             int valore,
             boolean dailyDouble,
@@ -87,11 +101,39 @@ public final class TabelloneDtos {
         public static CellaDto from(Cella cella) {
             return new CellaDto(
                     cella.getId(),
+                    cella.idDomandaVisibile(),
                     cella.getRiga(),
                     cella.getValore(),
                     cella.isDailyDouble(),
                     cella.testoEffettivo(),
                     cella.rispostaEffettiva());
+        }
+    }
+
+    /**
+     * Esito di una rigenerazione.
+     *
+     * <p>Esiste perche' "non ci sono altre domande per questa cella" e' una
+     * risposta, non un guasto: prima era un 409, che il client doveva
+     * riconoscere fra gli errori veri per non mostrare un allarme rosso a chi
+     * aveva solo esaurito le alternative. Adesso e' un 200 con
+     * {@code rigenerata: false} e un motivo da raccontare.
+     *
+     * @param cella      la cella, nuova se e' cambiata, invariata altrimenti
+     * @param rigenerata se la domanda e' stata effettivamente sostituita
+     * @param motivo     perche' no, quando {@code rigenerata} e' falso; il
+     *                   client decide come dirlo, questo non e' testo da
+     *                   mostrare cosi' com'e'
+     */
+    public record RigenerazioneDto(CellaDto cella, boolean rigenerata, String motivo) {
+
+        public static RigenerazioneDto fatta(Cella cella) {
+            return new RigenerazioneDto(CellaDto.from(cella), true, null);
+        }
+
+        public static RigenerazioneDto nessunaAlternativa(Cella cella) {
+            return new RigenerazioneDto(CellaDto.from(cella), false,
+                    "nessuna_alternativa_disponibile");
         }
     }
 

@@ -102,6 +102,7 @@ public class PartitaService {
     @Transactional
     public SquadraDto updateSquadra(Long partitaId, Long squadraId, SquadraUpdate request) {
         Partita partita = loadPartita(partitaId);
+        requireInCorso(partita);
         Squadra squadra = findSquadra(partita, squadraId);
         if (request.nome() != null && !request.nome().isBlank()) {
             squadra.setNome(request.nome().strip());
@@ -122,6 +123,7 @@ public class PartitaService {
     @Transactional
     public void removeSquadra(Long partitaId, Long squadraId) {
         Partita partita = loadPartita(partitaId);
+        requireInCorso(partita);
         Squadra squadra = findSquadra(partita, squadraId);
         squadra.setAttiva(false);
         if (squadraId.equals(partita.getTurnoSquadraId())) {
@@ -169,14 +171,22 @@ public class PartitaService {
     /**
      * Cancels the newest non-cancelled event and recomputes the affected
      * team's score from the log. A cell play also frees the cell for replay.
+     *
+     * <p>A registro vuoto non e' un errore: risponde
+     * {@link PartitaDtos.AnnullamentoDto#nienteDaAnnullare()}. L'annulla e'
+     * il pulsante che l'host preme di corsa quando sbaglia ad assegnare i
+     * punti, e premerlo una volta di troppo non deve produrre un allarme.
      */
     @Transactional
-    public EventoDto annulla(Long partitaId) {
+    public PartitaDtos.AnnullamentoDto annulla(Long partitaId) {
         Partita partita = loadPartita(partitaId);
+        requireInCorso(partita);
         EventoPartita evento = eventoPartitaRepository
                 .findFirstByPartitaIdAndAnnullatoFalseOrderByIdDesc(partitaId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Nessun evento da annullare"));
+                .orElse(null);
+        if (evento == null) {
+            return PartitaDtos.AnnullamentoDto.nienteDaAnnullare();
+        }
 
         evento.setAnnullato(true);
 
@@ -194,7 +204,7 @@ public class PartitaService {
                     .ifPresent(s -> s.setPunteggio(
                             eventoPartitaRepository.sumDeltaBySquadra(partitaId, s.getId())));
         }
-        return EventoDto.from(evento);
+        return PartitaDtos.AnnullamentoDto.fatto(evento);
     }
 
     @Transactional

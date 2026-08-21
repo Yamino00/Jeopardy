@@ -15,8 +15,11 @@ enum GenereErrore {
   /// 404: il codice del tabellone non esiste, o la partita è sparita.
   nonTrovato,
 
-  /// 409. **Non sempre è un errore**: "Nessun evento da annullare" è la
-  /// condizione normale di inizio partita. Vedi [ErroreApi.atteso].
+  /// 409: l'azione non è possibile nello stato attuale — per esempio giocare
+  /// una cella a partita conclusa. È sempre un errore vero: le condizioni
+  /// normali che prima arrivavano come 409 (annullare senza niente da
+  /// annullare, rigenerare senza alternative) adesso arrivano come 200 con un
+  /// campo che le distingue, ed è il posto giusto in cui distinguerle.
   conflitto,
 
   /// 429: la quota giornaliera di generazioni è esaurita.
@@ -44,16 +47,6 @@ class ErroreApi implements Exception {
   final String messaggio;
 
   final int? codiceStato;
-
-  /// Vero per le condizioni che sono normali e non guasti.
-  ///
-  /// Oggi ce n'è una sola e vale la pena nominarla: annullare quando non c'è
-  /// ancora niente da annullare. Il backend risponde 409 e il codice
-  /// precedente lo mostrava come uno snackbar d'errore col testo del server, a
-  /// un host che aveva semplicemente premuto un pulsante di troppo.
-  bool get atteso =>
-      genere == GenereErrore.conflitto &&
-      messaggio.toLowerCase().contains('nessun evento da annullare');
 
   /// Se abbia senso offrire "riprova". Su un 404 o su un conflitto riprovare
   /// darebbe lo stesso esito, quindi il pulsante non si mostra.

@@ -9,7 +9,21 @@ import java.sql.Connection;
 import java.util.Map;
 
 /**
- * Health check endpoint verifying database connectivity.
+ * Sonde di salute, separate perche' rispondono a due domande diverse.
+ *
+ * <p><b>Liveness</b> ({@code /api/salute/vivo}) chiede solo se il processo e'
+ * vivo, e non tocca il database di proposito: e' la sonda che, quando fallisce,
+ * fa <b>riavviare</b> il container. Il database e' su un servizio che si
+ * sospende da solo dopo qualche minuto di inattivita', quindi legarci il
+ * riavvio significherebbe riavviare l'applicazione ogni volta che nessuno
+ * gioca — curando un problema che non c'e' col rimedio piu' costoso.
+ *
+ * <p><b>Readiness</b> ({@code /api/salute/pronto}) chiede se ha senso mandarci
+ * traffico adesso, e quindi il database lo verifica: se non risponde, nessuna
+ * richiesta utile puo' andare a buon fine, ma il processo non va riavviato.
+ *
+ * <p>{@code /api/salute} resta come sinonimo di readiness: e' l'indirizzo che
+ * il client e gli script gia' conoscono.
  */
 @RestController
 public class HealthController {
@@ -20,7 +34,13 @@ public class HealthController {
         this.dataSource = dataSource;
     }
 
-    @GetMapping("/api/salute")
+    /** Liveness: nessuna dipendenza esterna, altrimenti non e' una liveness. */
+    @GetMapping("/api/salute/vivo")
+    public Map<String, String> vivo() {
+        return Map.of("stato", "ok");
+    }
+
+    @GetMapping({"/api/salute", "/api/salute/pronto"})
     public ResponseEntity<Map<String, String>> health() {
         try (Connection conn = dataSource.getConnection()) {
             conn.createStatement().execute("SELECT 1");
@@ -29,7 +49,7 @@ public class HealthController {
                     "database", "connesso"
             ));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of(
+            return ResponseEntity.status(503).body(Map.of(
                     "stato", "errore",
                     "database", e.getMessage()
             ));

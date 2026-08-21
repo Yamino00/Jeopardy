@@ -5,10 +5,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -23,13 +23,23 @@ public class SegnalazioneController {
         this.clientContext = clientContext;
     }
 
+    /**
+     * Segnala una domanda della banca condivisa.
+     *
+     * <p>201 quando la segnalazione e' nuova, <b>200 quando questo dispositivo
+     * l'aveva gia' segnalata</b>: risegnalare non e' un conflitto, e rispondere
+     * 409 costringerebbe il client a raccontare come errore una condizione
+     * normale.
+     */
     @PostMapping("/api/domande/{domandaId}/segnalazioni")
-    @ResponseStatus(HttpStatus.CREATED)
-    public SegnalazioneService.SegnalazioneDto segnala(
+    public ResponseEntity<SegnalazioneService.SegnalazioneDto> segnala(
             @PathVariable Long domandaId,
             @Valid @RequestBody SegnalazioneRequest request) {
-        return segnalazioneService.segnala(
+        SegnalazioneService.SegnalazioneDto esito = segnalazioneService.segnala(
                 clientContext.getClientId(), domandaId, request.motivo(), request.nota());
+        return ResponseEntity
+                .status(esito.giaSegnalata() ? HttpStatus.OK : HttpStatus.CREATED)
+                .body(esito);
     }
 
     public record SegnalazioneRequest(

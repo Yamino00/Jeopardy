@@ -52,13 +52,19 @@ public class RoutingQuestionGenerator implements QuestionGenerator {
                             + "GEMINI_API_KEY e GROQ_API_KEY");
         }
 
+        Scadenza scadenza = request.scadenza();
         RuntimeException ultimoErrore = null;
 
         for (int giro = 0; giro < tentativi; giro++) {
             if (giro > 0) {
                 // I limiti dei free tier sono al minuto e si ricaricano in
                 // pochi secondi: aspettare una volta sola costa meno che
-                // consegnare un tabellone pieno di celle vuote
+                // consegnare un tabellone pieno di celle vuote. Ma l'attesa ha
+                // senso solo se dopo resta il tempo di fare davvero la chiamata
+                if (!restaTempoPerUnAltroGiro(disponibili, scadenza)) {
+                    log.info("Budget quasi esaurito: rinuncio al secondo giro sui provider");
+                    break;
+                }
                 log.info("Tutti i provider occupati, riprovo fra {}s", attesaDopoLimite.toSeconds());
                 attendi();
             }
@@ -69,6 +75,14 @@ public class RoutingQuestionGenerator implements QuestionGenerator {
 
             for (int i = 0; i < disponibili.size(); i++) {
                 LlmProvider provider = disponibili.get((partenza + i) % disponibili.size());
+                // Partire sapendo di non poter finire in tempo produce solo una
+                // richiesta sprecata verso il provider e uno sforamento certo
+                if (scadenza.residuo().compareTo(provider.timeoutRisposta()) < 0) {
+                    log.info("Non c'e' tempo per una chiamata intera a {}: mi fermo",
+                            provider.nome());
+                    scadenza.verifica("la generazione delle domande");
+                    break;
+                }
                 try {
                     GenerationOutcome outcome = provider.generate(request);
                     if (outcome.domande().isEmpty()) {
@@ -86,7 +100,21 @@ public class RoutingQuestionGenerator implements QuestionGenerator {
         }
 
         log.error("Tutti i provider hanno fallito per l'argomento '{}'", request.argomento());
+        if (ultimoErrore == null) {
+            // Nessun tentativo e' mai partito: e' stato il tempo, non i provider
+            throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT,
+                    "Tempo esaurito prima di poter generare le domande");
+        }
         throw ultimoErrore;
+    }
+
+    /** Serve tempo per l'attesa piu' almeno una chiamata intera. */
+    private boolean restaTempoPerUnAltroGiro(List<LlmProvider> disponibili, Scadenza scadenza) {
+        Duration minimoPerUnaChiamata = disponibili.stream()
+                .map(LlmProvider::timeoutRisposta)
+                .min(Duration::compareTo)
+                .orElse(Duration.ZERO);
+        return scadenza.residuo().compareTo(attesaDopoLimite.plus(minimoPerUnaChiamata)) >= 0;
     }
 
     private void attendi() {

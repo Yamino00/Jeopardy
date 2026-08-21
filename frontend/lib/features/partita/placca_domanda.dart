@@ -37,6 +37,8 @@ class PlaccaDomanda extends StatelessWidget {
     required this.onMostraRisposta,
     required this.onAssegna,
     required this.onPassa,
+    this.onSegnala,
+    this.giaSegnalata = false,
   });
 
   final String nomeCategoria;
@@ -49,6 +51,15 @@ class PlaccaDomanda extends StatelessWidget {
 
   final VoidCallback onChiudi;
   final VoidCallback onMostraRisposta;
+
+  /// Segnala la domanda condivisa. Nullo quando non c'è niente da segnalare —
+  /// una cella riempita a mano non ha una domanda di banca dietro — e in quel
+  /// caso il pulsante non esiste invece di esistere spento.
+  final VoidCallback? onSegnala;
+
+  /// Vero da quando questo dispositivo l'ha segnalata: il pulsante resta
+  /// visibile ma spento, così si vede che il tocco è arrivato.
+  final bool giaSegnalata;
 
   /// `positivo` distingue l'assegnazione dalla sottrazione. Non c'è nessun
   /// booleano "corretta" da qualche parte nel colore: la direzione è il dato.
@@ -76,6 +87,8 @@ class PlaccaDomanda extends StatelessWidget {
                 valore: valore,
                 inviando: inviando,
                 onChiudi: onChiudi,
+                onSegnala: onSegnala,
+                giaSegnalata: giaSegnalata,
               ),
               const SizedBox(height: Misure.s5),
               Expanded(
@@ -199,12 +212,16 @@ class _Testa extends StatelessWidget {
     required this.valore,
     required this.inviando,
     required this.onChiudi,
+    required this.onSegnala,
+    required this.giaSegnalata,
   });
 
   final String nomeCategoria;
   final int valore;
   final bool inviando;
   final VoidCallback onChiudi;
+  final VoidCallback? onSegnala;
+  final bool giaSegnalata;
 
   @override
   Widget build(BuildContext context) {
@@ -219,6 +236,26 @@ class _Testa extends StatelessWidget {
           ),
         ),
         const SizedBox(width: Misure.s3),
+        // La segnalazione sta **qui**, nella testa della placca: il momento in
+        // cui ci si accorge che una domanda è sbagliata è quello in cui la si
+        // legge ad alta voce, non dopo. In ferramenta e non in luce, però —
+        // l'unica cosa accesa dello schermo resta il bordo della cella in
+        // gioco.
+        if (onSegnala != null)
+          IconButton(
+            key: const Key('segnala-domanda'),
+            onPressed: inviando || giaSegnalata ? null : onSegnala,
+            tooltip: giaSegnalata
+                ? 'Domanda già segnalata'
+                : 'Segnala un errore in questa domanda',
+            color: Colori.acciaio,
+            icon: Icon(
+              giaSegnalata ? Icons.flag_rounded : Icons.outlined_flag_rounded,
+              semanticLabel: giaSegnalata
+                  ? 'Domanda già segnalata'
+                  : 'Segnala un errore in questa domanda',
+            ),
+          ),
         IconButton(
           key: const Key('chiudi-cella'),
           onPressed: inviando ? null : onChiudi,

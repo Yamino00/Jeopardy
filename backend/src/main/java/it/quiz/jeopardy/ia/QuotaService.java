@@ -26,9 +26,35 @@ public class QuotaService {
     }
 
     /**
+     * Controlla che una generazione sia ancora concessa <b>senza consumarla</b>.
+     *
+     * <p>Va chiamata prima di iniziare un lavoro lungo: un tabellone che non
+     * potra' finire non deve nemmeno cominciare, altrimenti l'utente aspetta
+     * un minuto per sentirsi dire di no. Non e' una prenotazione — fra questo
+     * controllo e {@link #consumeGeneration} un'altra richiesta dello stesso
+     * client puo' passare — ma per un uso con un dispositivo per volta la
+     * differenza non si vede, e una prenotazione vera costerebbe un lock
+     * tenuto per tutta la durata della chiamata all'LLM.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    public void verificaDisponibilita(UUID clientId) {
+        quotaClientRepository.findById(clientId).ifPresent(quota -> {
+            if (quota.isBloccato() || generazioniDiOggi(quota) >= quotaGiornaliera) {
+                throw new QuotaExceededException(
+                        "Quota giornaliera di generazioni esaurita (" + quotaGiornaliera + ")");
+            }
+        });
+    }
+
+    /**
      * Registers one generation for the client, or throws
      * {@link QuotaExceededException} if the daily quota is exhausted.
      * Runs in its own transaction so the counter survives a later rollback.
+     *
+     * <p>Va invocata <b>dopo</b> che l'LLM ha risposto, non prima: una
+     * generazione che fallisce non ha prodotto niente, e farla pagare come se
+     * avesse prodotto qualcosa significa che tre rigenerazioni sfortunate
+     * bruciano tre delle venti generazioni del giorno senza dare una domanda.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void consumeGeneration(UUID clientId) {
@@ -46,5 +72,10 @@ public class QuotaService {
         }
         quota.setGenerazioniOggi((short) (quota.getGenerazioniOggi() + 1));
         quotaClientRepository.save(quota);
+    }
+
+    /** Il contatore vale solo per il giorno che ha registrato: ieri non conta. */
+    private static short generazioniDiOggi(QuotaClient quota) {
+        return LocalDate.now().equals(quota.getGiorno()) ? quota.getGenerazioniOggi() : 0;
     }
 }

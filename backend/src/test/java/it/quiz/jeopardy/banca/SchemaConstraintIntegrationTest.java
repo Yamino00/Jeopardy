@@ -167,6 +167,61 @@ class SchemaConstraintIntegrationTest {
         assertThat(activeCount).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("Un dispositivo non puo' segnalare due volte la stessa domanda")
+    void duplicateSegnalazione_sameClient_isRejected() {
+        Long domandaId = domandaPerSegnalazioni("segnalazioni-doppie");
+        String clientId = "11111111-1111-1111-1111-111111111111";
+
+        jdbc.update("""
+                INSERT INTO segnalazione (domanda_id, client_id, motivo)
+                VALUES (?, ?::uuid, 'errata')
+                """, domandaId, clientId);
+
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO segnalazione (domanda_id, client_id, motivo)
+                VALUES (?, ?::uuid, 'ambigua')
+                """, domandaId, clientId))
+                .hasMessageContaining("ux_segnalazione_client");
+    }
+
+    @Test
+    @DisplayName("Dispositivi diversi segnalano la stessa domanda liberamente")
+    void segnalazioni_daClientDiversi_sonoAmmesse() {
+        Long domandaId = domandaPerSegnalazioni("segnalazioni-diverse");
+
+        for (int i = 1; i <= 3; i++) {
+            jdbc.update("""
+                    INSERT INTO segnalazione (domanda_id, client_id, motivo)
+                    VALUES (?, ?::uuid, 'errata')
+                    """, domandaId, "2222222%d-2222-2222-2222-222222222222".formatted(i));
+        }
+
+        Integer quante = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM segnalazione WHERE domanda_id = ?",
+                Integer.class, domandaId);
+        assertThat(quante).isEqualTo(3);
+    }
+
+    /** Una domanda su un argomento tutto suo, per non disturbare gli altri test. */
+    private Long domandaPerSegnalazioni(String slug) {
+        jdbc.update("""
+                INSERT INTO argomento (nome, slug, lingua) VALUES (?, ?, 'it')
+                """, slug, slug);
+        Long argomentoId = jdbc.queryForObject(
+                "SELECT id FROM argomento WHERE slug = ?", Long.class, slug);
+
+        jdbc.update("""
+                INSERT INTO domanda (argomento_id, testo, risposta, entita_canonica,
+                                     hash_testo, difficolta)
+                VALUES (?, 'Domanda da segnalare?', 'Risposta', ?, ?, 1)
+                """, argomentoId, slug, sha256(slug));
+
+        return jdbc.queryForObject("""
+                SELECT id FROM domanda WHERE argomento_id = ?
+                """, Long.class, argomentoId);
+    }
+
     private static byte[] sha256(String text) {
         try {
             return MessageDigest.getInstance("SHA-256")

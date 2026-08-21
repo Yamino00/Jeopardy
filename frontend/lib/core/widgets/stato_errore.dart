@@ -144,15 +144,18 @@ class StatoErrore extends StatelessWidget {
 /// Il messaggio breve per un'azione fallita a partita in corso.
 ///
 /// Non è un errore di schermata: la partita continua, e va detto in una riga
-/// senza portare via il tabellone. Le condizioni **attese** — annullare quando
-/// non c'è niente da annullare — passano di qui come informazione neutra, non
-/// come guasto.
+/// senza portare via il tabellone.
+///
+/// Qui ci passano solo guasti veri. Le condizioni normali che il server
+/// segnalava con un 409 — annullare senza niente da annullare, rigenerare
+/// senza alternative — adesso tornano come esiti espliciti e non arrivano
+/// mai fin qui.
 SnackBar barraErrore(Object errore) {
   final e = errore is ErroreApi
       ? errore
       : ErroreApi(genere: GenereErrore.server, messaggio: errore.toString());
   return SnackBar(
-    content: Text(e.atteso ? e.messaggio : '${e.titolo} · ${e.rimedio}'),
+    content: Text('${e.titolo} · ${e.rimedio}'),
     behavior: SnackBarBehavior.floating,
   );
 }

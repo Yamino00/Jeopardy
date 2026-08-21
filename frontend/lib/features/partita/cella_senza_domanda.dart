@@ -10,9 +10,9 @@ enum EsitoTentativo {
   /// In corso: la generazione IA richiede decine di secondi.
   inCorso,
 
-  /// Il backend ha risposto 409: la banca non ha altre domande per questo
-  /// argomento. **Non è un errore** — è un esito atteso su un argomento
-  /// stretto, e l'unica via che resta è scriverla a mano.
+  /// La banca non ha altre domande per questo argomento. **Non è un errore** —
+  /// il backend lo dice con un 200 e `rigenerata: false`, ed è un esito atteso
+  /// su un argomento stretto: l'unica via che resta è scriverla a mano.
   esaurita,
 
   /// Errore vero (rete, permessi, 5xx).
@@ -21,18 +21,20 @@ enum EsitoTentativo {
 
 /// La cella che il backend non è riuscito a riempire.
 ///
-/// Non è un caso teorico: quando la deduplicazione non lascia abbastanza
-/// domande, `TabelloneService` scrive un segnaposto invece di far fallire tutto
-/// il tabellone. Prima, in partita, quel segnaposto veniva **renderizzato come
-/// contenuto**: una non-domanda seguita, alla rivelazione, da un riquadro vuoto.
+/// **I tabelloni nuovi non ne hanno più.** `TabelloneService` prima scriveva un
+/// segnaposto quando la deduplicazione non lasciava abbastanza domande; adesso
+/// ripiega sulla banca e, se davvero non c'è niente, rifiuta di creare un
+/// tabellone bucato. Questo schermo resta per i tabelloni creati prima, che
+/// quel segnaposto ce l'hanno ancora dentro, e perché la correzione a mano è
+/// comunque l'uscita per una domanda semplicemente sbagliata.
 ///
-/// Qui è uno **stato riconosciuto**, e degrada in tre passi, nell'ordine in cui
+/// È uno **stato riconosciuto**, e degrada in tre passi, nell'ordine in cui
 /// possono fallire:
 ///
-/// 1. rigenerare — che costa una generazione del tetto giornaliero **anche se
-///    fallisce**, perché il backend consuma la quota prima di chiamare il
-///    modello, e va detto invece di fingere che sia un retry gratuito;
-/// 2. il 409 come esito atteso, non come snackbar rossa col testo del server;
+/// 1. rigenerare — che costa una generazione del tetto giornaliero solo se il
+///    modello risponde davvero;
+/// 2. l'esaurimento come esito atteso, non come snackbar rossa col testo del
+///    server;
 /// 3. la correzione a mano, che è l'unica uscita che funziona sempre.
 ///
 /// Le prime due richiedono il codice di modifica, quindi esistono solo sul
@@ -184,8 +186,8 @@ class CellaSenzaDomanda extends StatelessWidget {
           ),
           const SizedBox(height: Misure.s2),
           const Text(
-            'Consuma una delle generazioni giornaliere, anche se non trova '
-            'niente.',
+            'Consuma una delle generazioni giornaliere solo se l\'IA '
+            'risponde.',
             style: Tipografia.ferramenta,
           ),
           const SizedBox(height: Misure.s4),

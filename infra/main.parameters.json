@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_commento": [
+    "I valori NON segreti del deploy. Questo file si versiona.",
+    "I segreti (dbUrl, dbUsername, dbPassword, geminiApiKey, groqApiKey) NON",
+    "stanno qui: si passano da riga di comando o dai segreti di GitHub, come",
+    "spiegato in docs/DEPLOY_AZURE.md.",
+    "Sostituire <UTENTE_GITHUB> con il proprio nome utente."
+  ],
+  "parameters": {
+    "nome": {
+      "value": "jeopardy"
+    },
+    "regione": {
+      "value": "westeurope"
+    },
+    "immagine": {
+      "value": "ghcr.io/<UTENTE_GITHUB>/jeopardy-backend:latest"
+    },
+    "corsAllowedOrigins": {
+      "value": ""
+    }
+  }
+}

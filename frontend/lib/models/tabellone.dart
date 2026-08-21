@@ -69,36 +69,55 @@ class Cella {
     required this.riga,
     required this.valore,
     required this.dailyDouble,
+    this.domandaId,
     this.testo,
     this.risposta,
   });
 
   final int id;
+
+  /// L'id della domanda nella banca condivisa, quando la cella ne ha una.
+  ///
+  /// È la chiave che rende raggiungibile `POST /api/domande/{id}/segnalazioni`:
+  /// finché `CellaDto` non lo esponeva, l'endpoint di segnalazione esisteva
+  /// lato server ma nessun client poteva chiamarlo.
+  ///
+  /// Nullo per le celle segnaposto — quelle che la deduplicazione ha lasciato
+  /// vuote — e nei tabelloni serviti da una cache salvata prima di questo
+  /// campo. In entrambi i casi non c'è niente da segnalare.
+  final int? domandaId;
+
   final int riga;
   final int valore;
   final bool dailyDouble;
   final String? testo;
   final String? risposta;
 
-  /// Vero quando il backend non ha trovato una domanda per questa cella.
+  /// Vero quando questa cella può essere segnalata: c'è una domanda condivisa
+  /// dietro, ed è una domanda vera e non un segnaposto.
+  bool get segnalabile => domandaId != null && !senzaDomanda;
+
+  /// Vero quando la cella non ha una domanda utilizzabile.
   ///
-  /// Non è un caso teorico: quando la deduplicazione non lascia abbastanza
-  /// domande, `TabelloneService` scrive `testoOverride = "Domanda da
-  /// completare"` e **`rispostaOverride = ""`** invece di far fallire tutto il
-  /// tabellone. In partita questo diventava una non-domanda seguita, alla
-  /// rivelazione, da un riquadro vuoto.
+  /// **I tabelloni creati da oggi non ne hanno.** Il backend prima scriveva un
+  /// segnaposto (`testoOverride = "Domanda da completare"`,
+  /// `rispostaOverride = ""`) quando la deduplicazione non lasciava abbastanza
+  /// domande; adesso ripiega sulla banca e, se davvero non c'è niente, si
+  /// rifiuta di creare un tabellone bucato. Questo resta perché i tabelloni
+  /// creati prima quel segnaposto ce l'hanno ancora dentro, e perché una cache
+  /// locale può servirne uno.
   ///
-  /// Il segnale su cui ci basiamo è la **risposta vuota**, non il testo: il
-  /// testo del segnaposto è configurabile lato backend
-  /// (`app.tabellone.placeholder-testo`), mentre una domanda vera ha sempre una
-  /// risposta. Confrontare la stringa sarebbe un accoppiamento a una
-  /// configurazione che non controlliamo.
+  /// Il segnale è la **risposta vuota**, non il testo: il testo del vecchio
+  /// segnaposto era configurabile lato backend, mentre una domanda vera ha
+  /// sempre una risposta. Confrontare la stringa sarebbe stato un
+  /// accoppiamento a una configurazione che non controlliamo.
   bool get senzaDomanda =>
       risposta == null || risposta!.trim().isEmpty ||
       testo == null || testo!.trim().isEmpty;
 
   factory Cella.fromJson(Map<String, dynamic> json) => Cella(
         id: json['id'] as int,
+        domandaId: json['domanda_id'] as int?,
         riga: json['riga'] as int,
         valore: json['valore'] as int,
         dailyDouble: json['daily_double'] as bool? ?? false,

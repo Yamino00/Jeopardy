@@ -10,6 +10,7 @@ import 'package:frontend/core/design/design.dart';
 import 'package:frontend/core/storage/cache_tabelloni.dart';
 import 'package:frontend/core/storage/client_id_storage.dart';
 import 'package:frontend/core/widgets/stato_errore.dart';
+import 'package:frontend/data/partita_repository.dart';
 import 'package:frontend/data/tabellone_repository.dart';
 import 'package:frontend/models/evento.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,6 +29,27 @@ class _AdattatoreFinto implements HttpClientAdapter {
   @override
   void close({bool force = false}) {}
 }
+
+/// Un client che riceve sempre la stessa risposta JSON, senza rete.
+ApiClient _apiConRisposta(String corpo) {
+  final api = ApiClient(clientIdStorage: ClientIdStorage());
+  api.dio.httpClientAdapter = _AdattatoreFinto(
+    (_) async => ResponseBody.fromString(
+      corpo,
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    ),
+  );
+  return api;
+}
+
+PartitaRepository _partiteConRisposta(String corpo) =>
+    PartitaRepository(_apiConRisposta(corpo));
+
+TabelloneRepository _tabelloniConRisposta(String corpo) =>
+    TabelloneRepository(_apiConRisposta(corpo), CacheTabelloni());
 
 ResponseBody _json(Map<String, dynamic> corpo, {int stato = 200}) =>
     ResponseBody.fromString(
@@ -125,37 +147,96 @@ void main() {
     });
   });
 
-  group('il 409 dell\'annulla non è un errore', () {
-    test('annullare a inizio partita è una condizione attesa', () {
-      // D9: e' la normalita' di inizio partita, e arrivava all'utente come
-      // uno snackbar d'errore col testo del server.
+  group('le condizioni normali non passano più dagli errori', () {
+    test('annullare senza niente da annullare torna null, non solleva', () async {
+      // Prima era un 409, e l'host che premeva annulla di riflesso a inizio
+      // partita vedeva uno snackbar d'errore col testo del server.
+      final repo = _partiteConRisposta(
+        '{"evento": null, "annullato": false}',
+      );
+      expect(await repo.annulla(1), isNull);
+    });
+
+    test('un annulla riuscito porta indietro l\'evento', () async {
+      final repo = _partiteConRisposta(
+        '{"evento": {"id": 7, "tipo": "cella_giocata", "squadra_id": 3,'
+        ' "delta_punti": 300, "annullato": true}, "annullato": true}',
+      );
+      final evento = await repo.annulla(1);
+      expect(evento, isNotNull);
+      expect(evento!.id, 7);
+      expect(evento.deltaPunti, 300);
+    });
+
+    test('un 409 vero resta un conflitto', () {
+      // Restano i conflitti veri: giocare o annullare a partita conclusa.
       final e = ErroreApi.da(
-        _errore(stato: 409, dettaglio: 'Nessun evento da annullare'),
+        _errore(stato: 409, dettaglio: 'La partita non e in corso'),
       );
       expect(e.genere, GenereErrore.conflitto);
-      expect(e.atteso, isTrue);
+      expect(e.vaLaPenaRiprovare, isFalse);
     });
 
-    test('un altro 409 resta un conflitto vero', () {
-      final e = ErroreApi.da(
-        _errore(
-          stato: 409,
-          dettaglio: 'Nessuna domanda alternativa disponibile',
-        ),
-      );
-      expect(e.atteso, isFalse);
-    });
-
-    testWidgets('la condizione attesa si racconta senza allarmare',
+    testWidgets('un errore vero si racconta con le parole dell\'app',
         (tester) async {
       final barra = barraErrore(ErroreApi.da(
-        _errore(stato: 409, dettaglio: 'Nessun evento da annullare'),
+        _errore(stato: 409, dettaglio: 'La partita non e in corso'),
       ));
       await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: Builder(builder: (_) => barra.content))),
       );
-      // Niente "Non si può fare adesso · ...": solo il fatto.
-      expect(find.text('Nessun evento da annullare'), findsOneWidget);
+      // Il testo del server non arriva mai all'utente cosi' com'e'.
+      expect(find.text('La partita non e in corso'), findsNothing);
+      expect(find.textContaining('Non si può fare adesso'), findsOneWidget);
+    });
+
+    test('rigenerare senza alternative è un esito, non un\'eccezione',
+        () async {
+      final repo = _tabelloniConRisposta(
+        '{"cella": {"id": 5, "domanda_id": null, "riga": 1, "valore": 100,'
+        ' "daily_double": false, "testo": "Vecchia?", "risposta": "Vecchia"},'
+        ' "rigenerata": false, "motivo": "nessuna_alternativa_disponibile"}',
+      );
+      final esito = await repo.rigeneraCella(
+        codicePubblico: 'KDSYMS',
+        codiceModifica: 'abc',
+        cellaId: 5,
+      );
+      expect(esito, isA<NessunaAlternativa>());
+    });
+
+    test('rigenerare con successo porta indietro la cella nuova', () async {
+      final repo = _tabelloniConRisposta(
+        '{"cella": {"id": 5, "domanda_id": 42, "riga": 1, "valore": 100,'
+        ' "daily_double": false, "testo": "Nuova?", "risposta": "Nuova"},'
+        ' "rigenerata": true, "motivo": null}',
+      );
+      final esito = await repo.rigeneraCella(
+        codicePubblico: 'KDSYMS',
+        codiceModifica: 'abc',
+        cellaId: 5,
+      );
+      expect(esito, isA<RigenerazioneRiuscita>());
+      expect((esito as RigenerazioneRiuscita).cella.testo, 'Nuova?');
+      expect(esito.cella.domandaId, 42);
+    });
+  });
+
+  group('il risveglio del backend', () {
+    test('non solleva quando la rete non c\'è', () async {
+      // È un ping a vuoto all'avvio dell'app: se fallisce non deve succedere
+      // niente, tantomeno un errore non gestito che chiude l'applicazione.
+      final api = ApiClient(clientIdStorage: ClientIdStorage());
+      api.dio.httpClientAdapter = _AdattatoreFinto((options) async {
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.connectionError,
+        );
+      });
+
+      api.risveglia();
+      // Se l'errore non fosse ingoiato, arriverebbe qui come non gestito.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     });
   });
 

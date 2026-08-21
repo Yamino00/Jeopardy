@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,8 @@ public class GeminiQuestionGenerator implements LlmProvider {
     private final String modello;
     private final double temperature;
     private final int maxOutputTokens;
+    private final Duration timeoutConnessione;
+    private final Duration timeoutRisposta;
 
     /** Built lazily: the JDK HttpClient opens sockets already at build time. */
     private volatile RestClient restClient;
@@ -45,13 +48,17 @@ public class GeminiQuestionGenerator implements LlmProvider {
                                    @Value("${app.ia.gemini.api-key:}") String apiKey,
                                    @Value("${app.ia.gemini.modello}") String modello,
                                    @Value("${app.ia.gemini.temperature:0.9}") double temperature,
-                                   @Value("${app.ia.gemini.max-output-tokens:4096}") int maxOutputTokens) {
+                                   @Value("${app.ia.gemini.max-output-tokens:4096}") int maxOutputTokens,
+                                   @Value("${app.ia.timeout-connessione-secondi:5}") int timeoutConnessioneSecondi,
+                                   @Value("${app.ia.timeout-risposta-secondi:45}") int timeoutRispostaSecondi) {
         this.objectMapper = objectMapper;
         this.endpoint = endpoint;
         this.apiKey = apiKey;
         this.modello = modello;
         this.temperature = temperature;
         this.maxOutputTokens = maxOutputTokens;
+        this.timeoutConnessione = Duration.ofSeconds(timeoutConnessioneSecondi);
+        this.timeoutRisposta = Duration.ofSeconds(timeoutRispostaSecondi);
     }
 
     @Override
@@ -64,12 +71,18 @@ public class GeminiQuestionGenerator implements LlmProvider {
         return apiKey != null && !apiKey.isBlank();
     }
 
+    @Override
+    public Duration timeoutRisposta() {
+        return timeoutRisposta;
+    }
+
     private RestClient restClient() {
         RestClient client = restClient;
         if (client == null) {
             synchronized (this) {
                 if (restClient == null) {
-                    restClient = RestClient.builder().baseUrl(endpoint).build();
+                    restClient = LlmRestClients.conTimeout(
+                            endpoint, timeoutConnessione, timeoutRisposta);
                 }
                 client = restClient;
             }
@@ -83,6 +96,7 @@ public class GeminiQuestionGenerator implements LlmProvider {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Gemini non configurato: impostare GEMINI_API_KEY");
         }
+        request.scadenza().verifica("la chiamata a " + nome());
 
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
