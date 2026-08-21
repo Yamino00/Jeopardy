@@ -544,6 +544,14 @@ GitHub.
 **Se fallisce** al passo «Test del backend»: non è un problema di deploy, è il
 codice. Guarda quale test è rosso.
 
+**Se fallisce** al passo «Costruzione e push» con «repository name must be
+lowercase»: il proprietario del repository ha delle maiuscole (`Yamino00`) e i
+registri OCI non le accettano. Il workflow lo abbassa da sé in un passo
+apposito, perché le espressioni `${{ }}` di GitHub non hanno una funzione per
+farlo. Se hai modificato quella parte, ricontrolla che il nome dell'immagine
+passi da `${GITHUB_REPOSITORY_OWNER,,}` e non da
+`${{ github.repository_owner }}`.
+
 ### 4.2 A mano, dal tuo computer — *stessa cosa, meno comoda*
 
 ```bash
@@ -897,6 +905,9 @@ omettendo `appLogsConfiguration` in `infra/main.bicep`.
   entrambi, senza creare risorse.
 - **Container Apps è disponibile in tutte e cinque le regioni permesse** da
   questa sottoscrizione, `italynorth` compresa.
+- **Il nome dell'immagine deve essere minuscolo.** `github.repository_owner`
+  restituisce `Yamino00` con le maiuscole e la build fallisce con «repository
+  name must be lowercase». Il workflow lo abbassa in un passo dedicato.
 - **Il soggetto della credenziale federata dipende dall'ambiente, non dal ramo.**
   Il workflow dichiara `environment: azure`, quindi GitHub manda
   `repo:OWNER/REPO:environment:azure` e non `ref:refs/heads/main`. La prima
