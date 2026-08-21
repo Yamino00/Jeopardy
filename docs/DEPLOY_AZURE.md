@@ -376,28 +376,40 @@ ogni deploy tocca risorse che consumano credito — quello si aggiunge dal
 browser: **Settings → Environments → azure → Required reviewers**, e metti te
 stesso.
 
-Poi la credenziale federata. **Non passarla come stringa sulla riga di comando**:
-PowerShell toglie le virgolette prima che `az` veda il JSON, e ottieni
-«Failed to parse string as JSON». Sta già pronta in un file:
+Poi la credenziale federata. Azure confronta il `subject` **carattere per
+carattere**, senza jolly, quindi deve essere esattamente quello che GitHub
+manderà. Due cose lo rendono meno ovvio di come lo raccontano i tutorial:
+
+1. **Il job dichiara un `environment:`**, quindi GitHub non mette il ramo nel
+   claim: la forma è `…:environment:azure`, non `…:ref:refs/heads/main`.
+2. **I repository creati dopo il 15 luglio 2026 usano i *subject immutabili***:
+   al proprietario e al repository viene attaccato il rispettivo ID numerico,
+   così un nome riciclato non può ereditare la fiducia del precedente. La forma
+   diventa `repo:OWNER@IDOWNER/REPO@IDREPO:environment:azure`.
+
+Ricava gli ID — sono pubblici, non sono segreti:
+
+```bash
+gh api users/Yamino00 --jq .id; gh api repos/Yamino00/Jeopardy --jq .id
+```
+
+Il file `infra/federated-credential.json` contiene già il soggetto composto per
+questo repository. **Se il tuo è diverso**, ricomponilo con gli ID appena letti
+prima di andare avanti.
+
+**Non passare il JSON come stringa sulla riga di comando**: PowerShell toglie le
+virgolette prima che `az` le veda, e ottieni «Failed to parse string as JSON».
 
 ```bash
 az ad app federated-credential create --id <APP_ID> --parameters '@infra/federated-credential.json'
 ```
 
-> **Il `subject` deve corrispondere carattere per carattere**, perché Azure fa un
-> confronto esatto e non accetta jolly.
+> **Se avevi già creato la credenziale con il soggetto vecchio** (senza gli ID),
+> non serve cancellarla: correggila sul posto.
 >
-> Quando un job dichiara un `environment:`, GitHub **non** mette il ramo nel
-> claim: il soggetto diventa `repo:OWNER/REPO:environment:NOME`. Il nostro è
-> quindi `repo:Yamino00/Jeopardy:environment:azure`, ed è già scritto così nel
-> file. Se ci mettessi `ref:refs/heads/main` — la forma che si trova in quasi
-> tutti i tutorial, che presuppongono un job senza ambiente — il login
-> fallirebbe con `AADSTS70021` e non sarebbe evidente il perché.
->
-> **Le maiuscole contano**: `Yamino00/Jeopardy` è come GitHub scrive il
-> repository, e va copiato così. Se il tuo repository ha un altro nome o
-> proprietario, correggi `infra/federated-credential.json` prima di lanciare il
-> comando.
+> ```bash
+> az ad app federated-credential update --id <APP_ID> --federated-credential-id github-deploy --parameters '@infra/federated-credential.json'
+> ```
 
 **Cosa devi vedere:** un JSON con il `subject` che hai scelto. Per rileggerlo:
 
@@ -527,19 +539,29 @@ gh run watch
 
 Tutti i passi verdi, e in fondo un riepilogo con l'indirizzo del servizio.
 
-**Se fallisce** al passo «Accesso ad Azure» con `AADSTS70021`: il `subject`
-della credenziale federata non corrisponde a quello che GitHub ha mandato.
-Confronta i due. Quello atteso da Azure:
+**Se fallisce** al passo «Accesso ad Azure» con `AADSTS700213` o `AADSTS70021`:
+il `subject` della credenziale non corrisponde a quello che GitHub ha mandato.
+Il bello è che **l'errore ti dice quello presentato**, fra apici singoli:
+`No matching federated identity record found for presented assertion subject
+'…'`. Copialo da lì — è la verità, e non va indovinata.
+
+Confrontalo con quello che Azure si aspetta:
 
 ```bash
 az ad app federated-credential list --id <APP_ID> --query "[].subject" -o tsv
 ```
 
-Quello mandato da GitHub è `repo:Yamino00/Jeopardy:environment:azure`, perché il
-job dichiara `environment: azure`. Attenzione a tre trappole: le **maiuscole**
-del proprietario e del repository, la forma `environment:` invece di
-`ref:refs/heads/main`, e il fatto che l'ambiente `azure` deve **esistere** su
-GitHub.
+Se differiscono, allinea Azure a GitHub: metti il soggetto presentato in
+`infra/federated-credential.json` e aggiorna la credenziale.
+
+```bash
+az ad app federated-credential update --id <APP_ID> --federated-credential-id github-deploy --parameters '@infra/federated-credential.json'
+```
+
+Le quattro trappole, in ordine di frequenza: gli **ID immutabili** attaccati a
+proprietario e repository, la forma `environment:` invece di
+`ref:refs/heads/main`, le **maiuscole** di proprietario e repository, e
+l'ambiente `azure` che deve **esistere** su GitHub.
 
 **Se fallisce** al passo «Test del backend»: non è un problema di deploy, è il
 codice. Guarda quale test è rosso.
@@ -910,9 +932,15 @@ omettendo `appLogsConfiguration` in `infra/main.bicep`.
   name must be lowercase». Il workflow lo abbassa in un passo dedicato.
 - **Il soggetto della credenziale federata dipende dall'ambiente, non dal ramo.**
   Il workflow dichiara `environment: azure`, quindi GitHub manda
-  `repo:OWNER/REPO:environment:azure` e non `ref:refs/heads/main`. La prima
-  stesura di questa guida usava la forma col ramo — quella dei tutorial, che
-  presuppongono un job senza ambiente — e avrebbe fatto fallire il login.
+  `…:environment:azure` e non `…:ref:refs/heads/main`. La prima stesura di
+  questa guida usava la forma col ramo — quella dei tutorial, che presuppongono
+  un job senza ambiente.
+- **E porta anche gli ID immutabili.** Dal 15 luglio 2026 i repository nuovi
+  attaccano l'ID numerico a proprietario e repository, così un nome riciclato
+  non eredita la fiducia del precedente. Il soggetto reale di questo repository
+  è `repo:Yamino00@205906705/Jeopardy@1334456979:environment:azure`, verificato
+  contro gli ID letti dall'API di GitHub. Nessun tutorial scritto prima di
+  quella data lo menziona.
 - **La destinazione dei log non si scrive `'none'`.** Il messaggio di Azure
   («Supported values: 'log-analytics', 'azure-monitor' or none») sembra dire il
   contrario, ma quel «none» significa *nessun valore*: la proprietà
