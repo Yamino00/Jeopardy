@@ -20,8 +20,17 @@
     che richieda PowerShell 7.
 
 .PARAMETER BaseUrl
-    Indirizzo del backend, per esempio
-    https://ca-jeopardy.westeurope.azurecontainerapps.io
+    Indirizzo del backend. **Omettilo** e lo script se lo fa dire da Azure:
+    l'indirizzo di una Container App non e' componibile a mente, perche'
+    contiene un sottodominio casuale assegnato all'ambiente
+    (ca-jeopardy.<qualcosa-a-caso>.<regione>.azurecontainerapps.io). Va
+    passato solo per provare un backend locale.
+
+.PARAMETER NomeApp
+    Nome della Container App, quando l'indirizzo va ricavato da Azure.
+
+.PARAMETER GruppoRisorse
+    Gruppo di risorse, quando l'indirizzo va ricavato da Azure.
 
 .PARAMETER SaltaCreazione
     Salta il punto 4. Utile per un controllo veloce: creare un tabellone
@@ -34,15 +43,18 @@
     ne viene usato uno nuovo ogni volta, che e' la prova piu' severa.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1 -BaseUrl https://ca-jeopardy.westeurope.azurecontainerapps.io
+    powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1 -BaseUrl http://localhost:8080 -Argomento "Storia romana"
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string] $BaseUrl,
+
+    [string] $NomeApp = 'ca-jeopardy',
+
+    [string] $GruppoRisorse = 'rg-jeopardy',
 
     [switch] $SaltaCreazione,
 
@@ -50,9 +62,35 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$BaseUrl = $BaseUrl.TrimEnd('/')
 $clientId = [guid]::NewGuid().ToString()
 $problemi = @()
+
+# Senza -BaseUrl, l'indirizzo se lo fa dire ad Azure. Comporlo a mano e' la
+# trappola: il FQDN di una Container App include un sottodominio casuale
+# dell'ambiente, e "ca-nome.regione.azurecontainerapps.io" non esiste.
+if (-not $BaseUrl) {
+    $az = Get-Command az -ErrorAction SilentlyContinue
+    if (-not $az) {
+        # winget installa `az` fuori dal PATH di sessioni gia' aperte
+        $probabile = "C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
+        if (Test-Path $probabile) { $az = $probabile } else {
+            Write-Host "Serve la CLI di Azure per ricavare l'indirizzo, oppure passa -BaseUrl." -ForegroundColor Red
+            exit 1
+        }
+    } else { $az = $az.Source }
+
+    Write-Host "Chiedo a Azure l'indirizzo di $NomeApp..." -ForegroundColor DarkGray
+    $fqdn = & $az containerapp show --name $NomeApp --resource-group $GruppoRisorse `
+        --query properties.configuration.ingress.fqdn -o tsv 2>$null
+    if (-not $fqdn) {
+        Write-Host "Non trovata la Container App '$NomeApp' nel gruppo '$GruppoRisorse'." -ForegroundColor Red
+        Write-Host "Controlla i nomi, oppure passa -BaseUrl a mano." -ForegroundColor Yellow
+        exit 1
+    }
+    $BaseUrl = "https://$($fqdn.Trim())"
+}
+
+$BaseUrl = $BaseUrl.TrimEnd('/')
 
 # Windows PowerShell 5.1 negozia ancora TLS 1.0 di default su alcune
 # installazioni, e Azure lo rifiuta: senza questa riga le chiamate HTTPS

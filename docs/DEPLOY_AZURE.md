@@ -299,11 +299,16 @@ viene creato lo stesso e resterà in errore finché non fai il primo deploy
 (passo 4). Se preferisci evitarlo, fai prima il passo 4.1 e poi torna qui.
 
 **Cosa devi vedere:** in fondo all'output, `"provisioningState": "Succeeded"` e
-un valore `url` che assomiglia a
-`https://ca-jeopardy.<REGIONE>.azurecontainerapps.io`. **Segnatelo**: è
-l'indirizzo del backend, e serve sia per la verifica sia per costruire l'APK.
+un valore `url`. **Segnatelo**: è l'indirizzo del backend, e serve sia per la
+verifica sia per costruire l'APK.
 
-Se ti serve ritrovarlo dopo:
+> **Non provare a comporlo a mente.** Non è
+> `ca-<NOME>.<REGIONE>.azurecontainerapps.io`: Azure infila un sottodominio
+> casuale, assegnato all'ambiente alla creazione. Quello vero assomiglia a
+> `ca-jeopardy.agreeablepebble-31d3ba21.italynorth.azurecontainerapps.io`, e
+> l'unico modo di conoscerlo è chiederlo.
+
+Per rileggerlo in qualunque momento:
 
 ```bash
 az containerapp show --name ca-<NOME> --resource-group <NOME_RG> --query properties.configuration.ingress.fqdn -o tsv
@@ -606,34 +611,48 @@ Se si rompe, è un problema vero e va guardato — non aggirato.
 ### 5.1 Il backend risponde
 
 ```bash
-powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1 -BaseUrl https://ca-<NOME>.<REGIONE>.azurecontainerapps.io
+powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1
 ```
 
-Lo script controlla, in ordine: che risponda (e **misura l'avvio a freddo**),
-che raggiunga il database in TLS, che le rotte protette chiedano ancora
-l'identità del client, e che creare un tabellone vero funzioni — riportando
-quanto tempo resta prima del tetto interno di 150 secondi.
+Senza argomenti l'indirizzo se lo fa dire ad Azure: non c'è niente da copiare e
+niente da sbagliare. Lo script controlla, in ordine: che il backend risponda (e
+**misura l'avvio a freddo**), che raggiunga il database in TLS, che le rotte
+protette chiedano ancora l'identità del client, e che creare un tabellone vero
+funzioni — riportando quanto tempo resta prima del tetto interno di 150 secondi.
 
 **Cosa devi vedere:** quattro blocchi verdi e, in fondo, il comando per
-costruire l'APK.
+costruire l'APK, con l'indirizzo giusto già dentro.
 
 > La prima chiamata dopo un periodo di inattività può metterci **20-60
-> secondi**: il servizio scende a zero istanze quando nessuno gioca, e paga
-> l'avvio della JVM. È il prezzo di non spendere $13,60 al mese per tenerlo
-> sempre acceso. L'app lo maschera mandando un ping a vuoto all'apertura, così
-> il server si scalda mentre scegli gli argomenti.
+> secondi** — misurati 31 s sul primo risveglio reale. Il servizio scende a zero
+> istanze quando nessuno gioca, e paga l'avvio della JVM più il risveglio del
+> database. È il prezzo di non spendere $13,60 al mese per tenerlo sempre
+> acceso. L'app lo maschera mandando un ping a vuoto all'apertura, così il
+> server si scalda mentre scegli gli argomenti.
 
 Il punto 4 chiama l'IA e consuma una delle generazioni giornaliere. Per un
 controllo veloce che non consuma niente:
 
 ```bash
-powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1 -BaseUrl https://ca-<NOME>.<REGIONE>.azurecontainerapps.io -SaltaCreazione
+powershell -ExecutionPolicy Bypass -File scripts\verifica-deploy.ps1 -SaltaCreazione
 ```
+
+Se i nomi delle risorse non sono quelli di default, passali:
+`-NomeApp ca-<NOME> -GruppoRisorse <NOME_RG>`.
 
 ### 5.2 L'app vera punta al backend vero
 
+Serve l'indirizzo vero. Leggilo:
+
 ```bash
-cd frontend && flutter build apk --release --dart-define=API_BASE_URL=https://ca-<NOME>.<REGIONE>.azurecontainerapps.io
+az containerapp show --name ca-<NOME> --resource-group <NOME_RG> --query properties.configuration.ingress.fqdn -o tsv
+```
+
+Poi, sostituendo `<URL_BACKEND>` con `https://` seguito da quello che ha
+stampato:
+
+```bash
+cd frontend && flutter build apk --release --dart-define=API_BASE_URL=<URL_BACKEND>
 ```
 
 > **Il `--dart-define` non è opzionale.** Senza, l'APK parla con
@@ -741,6 +760,20 @@ type infra\segreti.parameters.json
 
 Tutti e cinque i valori devono essere pieni, e il percorso passato con
 `--parameters` deve puntare a questo file.
+
+### «Impossibile risolvere il nome remoto»
+
+Non è il servizio a essere spento: è l'indirizzo a non esistere. Quasi sempre
+perché è stato composto a mano come `ca-<NOME>.<REGIONE>.azurecontainerapps.io`,
+che **non è la forma giusta** — manca il sottodominio casuale dell'ambiente.
+
+Chiedilo ad Azure:
+
+```bash
+az containerapp show --name ca-<NOME> --resource-group <NOME_RG> --query properties.configuration.ingress.fqdn -o tsv
+```
+
+Oppure lancia lo script di verifica senza `-BaseUrl`: se lo fa dire da solo.
 
 ### «Il servizio non risponde» / la verifica si ferma al punto 1
 
@@ -927,6 +960,15 @@ omettendo `appLogsConfiguration` in `infra/main.bicep`.
   entrambi, senza creare risorse.
 - **Container Apps è disponibile in tutte e cinque le regioni permesse** da
   questa sottoscrizione, `italynorth` compresa.
+- **Il deploy è andato a fondo, e il backend risponde.** Verificato il 21 agosto
+  2026 su `italynorth`: liveness, database Neon raggiungibile in TLS con le
+  migrazioni applicate, rotte protette che chiedono ancora `X-Client-Id`.
+  **Avvio a freddo misurato: 31 secondi** sul primo risveglio reale, contro i
+  24 misurati in locale — la differenza è il risveglio del database.
+- **L'indirizzo del servizio non è componibile.** Contiene un sottodominio
+  casuale assegnato all'ambiente
+  (`ca-jeopardy.agreeablepebble-31d3ba21.italynorth.…`), e va sempre chiesto ad
+  Azure. Lo script di verifica ora lo fa da sé.
 - **Il nome dell'immagine deve essere minuscolo.** `github.repository_owner`
   restituisce `Yamino00` con le maiuscole e la build fallisce con «repository
   name must be lowercase». Il workflow lo abbassa in un passo dedicato.
