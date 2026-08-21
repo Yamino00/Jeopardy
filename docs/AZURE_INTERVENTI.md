@@ -15,17 +15,19 @@ della guida è eseguibile.
 |---|---|---|
 | **Verificare lo status studente e attivare Azure for Students** (1.1) | Senza sottoscrizione non esiste niente su cui distribuire. Serve un'email istituzionale: la verifica passa da lì e non c'è modo di aggirarla. **Se l'ateneo non viene riconosciuto, il progetto si ferma qui** finché non lo risolve il supporto Microsoft. | 10 min, più l'attesa della verifica |
 | **Installare la CLI di Azure** (1.2) | Non è installata: l'ho verificato. Ogni comando della guida comincia con `az`. Ricordati di riaprire il terminale dopo. | 5 min |
-| **Creare il progetto Neon** (2.1) | Il database sta fuori da Azure, ed è la scelta che tiene il conto a zero: su Azure costerebbe oltre $15 al mese contro un budget di $8. Ti servono la stringa JDBC, l'utente e la password. | 10 min |
+| **Creare il progetto Neon** (2.1) | Il database sta fuori da Azure, ed è la scelta che tiene il conto a zero: su Azure costerebbe oltre $15 al mese contro un budget di $8. Ti servono la stringa JDBC, l'utente e la password. **La regione scegliela dopo il passo 2.2**, vicina a quella Azure che ti tocca: su Neon si cambia in un minuto, su Azure non dipende da te. | 10 min |
 
 ## Setup, una volta sola
 
 | Cosa | Perché | Quanto tempo |
 |---|---|---|
-| **Registrare i provider `Microsoft.App` e `Microsoft.OperationalInsights`** (1.4) | Azure tiene disattivati i servizi mai usati. Senza, il passo 2.2 fallisce con un errore che non dice quale sia il problema. | 5 min, quasi tutti di attesa |
-| **Creare gruppo di risorse, ambiente e servizio** (2.2) | È il deploy dell'infrastruttura. Un solo comando, rieseguibile. **È anche il momento in cui si scopre** se Container Apps sia disponibile sulla tua sottoscrizione: non ho potuto verificarlo in anticipo. | 10 min |
+| **Registrare i provider `Microsoft.App` e `Microsoft.OperationalInsights`** (1.4) | Azure tiene disattivati i servizi mai usati. Senza, il passo 2.4 fallisce con un errore che non dice quale sia il problema. | 5 min, quasi tutti di attesa |
+| **Scoprire le regioni permesse** (2.2) | La sottoscrizione Student ne permette solo cinque circa, decise da Microsoft e diverse per ogni persona. **Va fatto prima di scegliere qualunque regione**, Neon compresa: il primo tentativo reale su `westeurope` è stato rifiutato. | 5 min |
+| **Riempire `infra/segreti.parameters.json`** (2.3) | Credenziali del database e chiavi IA. Su un file e non sulla riga di comando: su Windows le `&` di una stringa di connessione spezzano il comando a metà, e quello che scrivi resta nella cronologia di PowerShell. | 10 min |
+| **Creare gruppo di risorse, ambiente e servizio** (2.4) | È il deploy dell'infrastruttura. Un solo comando, rieseguibile. La regione si sceglie qui e solo qui. | 10 min |
 | **Impostare gli avvisi di budget al 50% e all'80%** (3) | Quando il credito finisce Azure **disabilita l'intera sottoscrizione**, non manda una bolletta. Gli avvisi automatici di Azure arrivano al 90% del credito totale: troppo tardi e sulla grandezza sbagliata. **Non rimandarlo a dopo il primo deploy.** | 5 min |
 | **Rendere pubblico il pacchetto su ghcr.io** (4.1) | Perché Azure possa scaricare l'immagine senza credenziali. Si fa una volta, dal browser, dopo il primo push. L'immagine non contiene segreti. | 2 min |
-| **Configurare la federazione OIDC per GitHub Actions** (2.3) | Permette al workflow di aggiornare il servizio senza salvare password. **Facoltativo**: se il tuo tenant universitario non ti lascia creare identità applicative, salta e usa il deploy manuale (4.2), che fa la stessa cosa. | 15 min |
+| **Configurare la federazione OIDC per GitHub Actions** (2.5) | Permette al workflow di aggiornare il servizio senza salvare password. Include la creazione dell'ambiente `azure` su GitHub, che non è un dettaglio: è quello che decide con quale identità GitHub si presenta ad Azure. **Facoltativo**: se il tuo tenant universitario non ti lascia creare identità applicative, salta e usa il deploy manuale (4.2), che fa la stessa cosa. | 15 min |
 
 ## A ogni rilascio
 

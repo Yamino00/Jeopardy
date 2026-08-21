@@ -52,3 +52,8 @@ Thumbs.db
 
 # Log di debug locali
 bug_*.txt
+
+# Parametri di deploy con i segreti: il template .esempio si versiona, questo no
+infra/segreti.parameters.json
+infra/segreti.parameters.json.*
+!infra/segreti.parameters.json.esempio

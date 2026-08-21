@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_come_si_usa": [
+    "Copia questo file in infra/segreti.parameters.json e riempi i valori.",
+    "Quel nome e' in .gitignore: non finira' mai nel repository.",
+    "",
+    "ATTENZIONE alla forma: dentro 'parameters' ARM pretende che ogni chiave",
+    "corrisponda a un parametro del template. Una nota messa li' fa fallire il",
+    "deploy con 'InvalidTemplate: parameters were supplied, but do not",
+    "correspond to any parameters defined in the template'. Le note vanno qui",
+    "in cima, fuori da 'parameters', dove ARM le ignora.",
+    "",
+    "dbUrl: la stringa JDBC di Neon SENZA user e password dentro — quelli",
+    "vanno nei loro campi. Deve contenere sslmode=require. Esempio:",
+    "jdbc:postgresql://ep-xxx-pooler.c-6.eu-central-1.aws.neon.tech/neondb?sslmode=require&channelBinding=require",
+    "",
+    "Perche' un file e non la riga di comando: su Windows `az` e' un file .cmd,",
+    "e cmd.exe rilegge la riga di comando dopo PowerShell. Gli '&' di una",
+    "stringa di connessione vengono interpretati come separatori di comando",
+    "anche dentro gli apici singoli, e il comando si spezza a meta'. Un file",
+    "JSON non passa da cmd.exe e il problema non esiste.",
+    "",
+    "In piu' i segreti non finiscono nella cronologia di PowerShell",
+    "(%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt),",
+    "dove resterebbero leggibili in chiaro per sempre."
+  ],
+  "parameters": {
+    "dbUrl": {
+      "value": ""
+    },
+    "dbUsername": {
+      "value": ""
+    },
+    "dbPassword": {
+      "value": ""
+    },
+    "geminiApiKey": {
+      "value": ""
+    },
+    "groqApiKey": {
+      "value": ""
+    }
+  }
+}

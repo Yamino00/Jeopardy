@@ -8,7 +8,7 @@
 // Quel che NON c'e', e non e' una dimenticanza:
 //   - nessun workspace Log Analytics: l'ingestione dei log consuma credito
 //     in silenzio, e con 8 dollari al mese non c'e' margine per una voce
-//     che cresce da sola. Vedi `logsDestination` piu' sotto.
+//     che cresce da sola. Vedi `appLogsConfiguration` piu' sotto.
 //   - nessun Container Registry: l'immagine sta su ghcr.io, che e' gratis.
 //     ACR Basic costerebbe 0,167 dollari al giorno, cioe' 5 al mese: il 63%
 //     del budget per conservare un file.
@@ -21,7 +21,7 @@ targetScope = 'resourceGroup'
 @maxLength(20)
 param nome string
 
-@description('Regione. West Europe e la piu vicina con Container Apps.')
+@description('Regione. Ereditata dal gruppo di risorse: le sottoscrizioni Student ne permettono solo alcune, vedi il passo 2.2 della guida.')
 param regione string = resourceGroup().location
 
 @description('Immagine completa, per esempio ghcr.io/utente/jeopardy-backend:v1.')
@@ -60,13 +60,18 @@ resource ambiente 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'cae-${nome}'
   location: regione
   properties: {
-    // La riga che tiene il conto a zero. Senza, Azure aggancia un workspace
-    // Log Analytics e comincia a fatturare l'ingestione. I log restano
-    // leggibili in diretta con `az containerapp logs show --follow`, ma non
-    // c'e' storico: e' il compromesso, ed e' consapevole.
-    appLogsConfiguration: {
-      destination: 'none'
-    }
+    // `appLogsConfiguration` e' assente di proposito, ed e' la scelta che
+    // tiene il conto a zero: dichiarando una destinazione, Azure aggancia un
+    // workspace Log Analytics e comincia a fatturare l'ingestione dei log.
+    //
+    // Non si scrive `destination: 'none'`. Il messaggio d'errore di Azure
+    // ("Supported values: 'log-analytics', 'azure-monitor' or none") sembra
+    // suggerirlo, ma quel "none" vuol dire "nessun valore", cioe' omettere la
+    // proprieta'. Con la stringa la validazione fallisce.
+    //
+    // Il prezzo: i log si leggono solo in diretta, con
+    // `az containerapp logs show --follow`, e non c'e' storico. Se qualcosa
+    // fallisce di notte, la mattina dopo non si puo' indagare.
   }
 }
 
@@ -171,7 +176,12 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           {
             name: 'http'
             http: {
-              concurrentRequests: '10'
+              // La soglia sta dentro `metadata`, non accanto. Fuori di li'
+              // Bicep la accetta con un avviso (BCP037) e ARM la ignora in
+              // silenzio: il caso peggiore, perche' sembra configurata.
+              metadata: {
+                concurrentRequests: '10'
+              }
             }
           }
         ]

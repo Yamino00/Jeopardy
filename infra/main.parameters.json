@@ -3,20 +3,25 @@
   "contentVersion": "1.0.0.0",
   "_commento": [
     "I valori NON segreti del deploy. Questo file si versiona.",
-    "I segreti (dbUrl, dbUsername, dbPassword, geminiApiKey, groqApiKey) NON",
-    "stanno qui: si passano da riga di comando o dai segreti di GitHub, come",
-    "spiegato in docs/DEPLOY_AZURE.md.",
-    "Sostituire <UTENTE_GITHUB> con il proprio nome utente."
+    "",
+    "I segreti stanno in infra/segreti.parameters.json, che e' in .gitignore:",
+    "copia infra/segreti.parameters.json.esempio e riempilo.",
+    "",
+    "La regione non e' qui di proposito: il template la eredita dal gruppo di",
+    "risorse, cosi' si sceglie una volta sola creando il gruppo e non c'e' un",
+    "secondo posto in cui possa divergere. Le sottoscrizioni Azure for Students",
+    "hanno un elenco ristretto di regioni permesse: vedi il passo 2.2 della",
+    "guida per scoprire quali sono le tue.",
+    "",
+    "L'immagine punta a ghcr.io/yamino00 — il proprietario di questo repository.",
+    "Il nome utente va in minuscolo: i registri OCI non accettano maiuscole."
   ],
   "parameters": {
     "nome": {
       "value": "jeopardy"
     },
-    "regione": {
-      "value": "westeurope"
-    },
     "immagine": {
-      "value": "ghcr.io/<UTENTE_GITHUB>/jeopardy-backend:latest"
+      "value": "ghcr.io/yamino00/jeopardy-backend:latest"
     },
     "corsAllowedOrigins": {
       "value": ""

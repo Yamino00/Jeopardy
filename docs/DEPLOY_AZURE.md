@@ -27,13 +27,14 @@ comandi. I segnaposto in MAIUSCOLO fra parentesi angolari vanno sostituiti.
 | Segnaposto | Cos'è | Valore consigliato |
 |---|---|---|
 | `<NOME_RG>` | Il contenitore di tutte le risorse Azure. Cancellarlo cancella tutto. | `rg-jeopardy` |
-| `<REGIONE>` | Il datacenter. La più vicina all'Italia con Container Apps. | `westeurope` |
+| `<REGIONE>` | Il datacenter. **Non sceglierlo adesso**: la tua sottoscrizione ne permette solo alcuni, e quali lo scopri al passo 2.2. | dal passo 2.2 |
 | `<NOME>` | Prefisso dei nomi. L'ambiente diventa `cae-<NOME>`, il servizio `ca-<NOME>`. | `jeopardy` |
 | `<UTENTE_GITHUB>` | Il tuo nome utente GitHub, minuscolo. | — |
 | `<EMAIL_AVVISI>` | Dove arrivano gli avvisi di budget. Un indirizzo che leggi. | — |
-| `<DB_URL>` | Stringa di connessione, dal passo 2.1. **Deve finire con `?sslmode=require`**. | — |
-| `<DB_UTENTE>` | Utente del database, dal passo 2.1. | — |
-| `<DB_PASSWORD>` | Password del database, dal passo 2.1. | — |
+
+Le credenziali del database e le chiavi dell'IA non sono in questa tabella di
+proposito: non vanno mai su una riga di comando. Si scrivono una volta sola in
+`infra/segreti.parameters.json`, al passo 2.3.
 
 Il nome del servizio diventa parte dell'indirizzo pubblico, quindi deve essere
 minuscolo, senza spazi e senza accenti.
@@ -119,7 +120,7 @@ non è andata a buon fine, oppure hai fatto login con un altro account.
 ### 1.4 Registrare i provider — *gratuito, una tantum*
 
 Azure tiene disattivati i servizi che non hai mai usato. Container Apps è uno di
-questi, e senza questo passo il passo 2.2 fallisce con un errore che non lo dice
+questi, e senza questo passo il passo 2.4 fallisce con un errore che non lo dice
 chiaramente.
 
 ```bash
@@ -133,7 +134,7 @@ az provider register --namespace Microsoft.OperationalInsights --wait
 > `Microsoft.OperationalInsights` è il provider di Log Analytics. Lo
 > registriamo perché Container Apps lo richiede comunque presente, **ma non
 > creeremo nessun workspace**: l'ingestione dei log consuma credito in silenzio
-> e la nostra configurazione la disattiva esplicitamente.
+> e il template non dichiara nessuna destinazione per i log.
 
 **Cosa devi vedere:**
 
@@ -162,25 +163,20 @@ scadenza e senza carta di credito, e supporta le due estensioni che lo schema
 richiede (`unaccent` e `pg_trgm`), quindi le migrazioni girano senza modifiche.
 
 1. Vai su <https://neon.com> e registrati (va bene l'account GitHub)
-2. Crea un progetto, regione **Europa** — una qualunque: la latenza verso West
-   Europe è di pochi millisecondi, mentre dagli Stati Uniti si sentirebbe
+2. Crea un progetto. **Aspetta il passo 2.2 per scegliere la regione**: conviene
+   metterla vicina alla regione Azure che ti tocca, e quella non la scegli tu.
+   Cambiare regione a Neon è gratis e immediato, quella di Azure no.
 3. PostgreSQL 16 o superiore
 4. A progetto creato, copia la stringa di connessione dalla schermata
    **Connection Details**, scegliendo il formato **Java / JDBC**
 
-La stringa che copi assomiglia a questa:
+La stringa che copi assomiglia a questa, con utente e password già dentro:
 
 ```
-jdbc:postgresql://ep-qualcosa-12345.eu-central-1.aws.neon.tech/neondb?sslmode=require
+jdbc:postgresql://ep-qualcosa-12345-pooler.c-6.eu-central-1.aws.neon.tech/neondb?user=neondb_owner&password=npg_xxxx&sslmode=require&channelBinding=require
 ```
 
-Da qui ricavi tre valori: `<DB_URL>` (la stringa intera), `<DB_UTENTE>` e
-`<DB_PASSWORD>` (che Neon mostra separatamente nella stessa schermata).
-
-> **Controlla che la stringa finisca con `?sslmode=require`.** Se manca, il
-> backend non si avvia: Neon rifiuta le connessioni in chiaro, e l'errore che
-> vedresti parla di rete, non di TLS. È il singolo errore più comune di questa
-> guida.
+Al passo 2.3 la ripulirai: utente e password vanno nei loro campi, non nell'URL.
 
 **Cosa devi vedere:** nella console Neon, il progetto con lo stato **Active** e
 un database chiamato `neondb`.
@@ -190,7 +186,91 @@ descritte, l'alternativa più vicina è Supabase (piano gratuito, ma i progetti 
 sospendono dopo una settimana di inattività — peggio per un'app che si usa a
 raffiche). Non mettere Postgres su Azure senza rifare i conti.
 
-### 2.2 Il gruppo di risorse e il servizio — *gratuito a riposo*
+### 2.2 Scoprire in quali regioni puoi distribuire — *gratuito*
+
+**Fai questo passo prima di scegliere `<REGIONE>`.** Le sottoscrizioni Azure for
+Students hanno un elenco ristretto di regioni — tipicamente cinque — deciso da
+Microsoft e **diverso per ogni persona**. Non è configurabile, e non c'è modo di
+indovinarlo: `westeurope` può esserci o non esserci.
+
+```bash
+az policy assignment list --query "[].{criterio:displayName, regioni:parameters.listOfAllowedLocations.value}" -o json
+```
+
+**Cosa devi vedere:** un elenco di criteri; quello che riguarda le regioni si
+chiama «Allowed resource deployment regions» e ha un campo `regioni`
+valorizzato.
+
+> **Su questa sottoscrizione, al 21 agosto 2026**, l'elenco era:
+> `francecentral`, `uaenorth`, `spaincentral`, `polandcentral`, **`italynorth`**.
+>
+> Container Apps è disponibile in tutte e cinque — verificato — e `italynorth`
+> è Milano, la più vicina sia a te sia al database. **Usa `italynorth`.**
+>
+> L'elenco può cambiare: se un comando fallisce dicendo che la regione è
+> vietata, rilancia la query qui sopra invece di fidarti di questa nota.
+
+Poi controlla che Container Apps esista davvero nella regione scelta: le regioni
+permesse dalla sottoscrizione e quelle in cui il servizio è disponibile sono due
+elenchi diversi, e devono intersecarsi.
+
+```bash
+az provider show --namespace Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations | [0]" -o json
+```
+
+**Se il primo comando non restituisce niente di utile**, guarda dal portale:
+**Criteri → Creazione → Assegnazioni**, cerca l'assegnazione con «location» o
+«region» nel nome e apri **Parametri**.
+
+> **Se nessuna regione permessa fosse in Europa** il progetto funzionerebbe lo
+> stesso, ma ogni query al database pagherebbe la traversata dell'Atlantico due
+> volte. In quel caso conviene creare il progetto Neon vicino alla regione Azure
+> che ti tocca, non il contrario: cambiare regione a Neon è gratis e immediato,
+> quella di Azure non dipende da te.
+
+### 2.3 Preparare i segreti — *gratuito*
+
+I segreti **non** vanno sulla riga di comando. Due motivi concreti, non teorici:
+
+- su Windows `az` è un file `.cmd`, e `cmd.exe` rilegge la riga di comando dopo
+  PowerShell: le `&` di una stringa di connessione vengono interpretate come
+  separatori **anche dentro gli apici singoli**, e il comando si spezza a metà;
+- quello che scrivi nel terminale resta in chiaro per sempre nella cronologia di
+  PowerShell.
+
+Copia il modello:
+
+```bash
+copy infra\segreti.parameters.json.esempio infra\segreti.parameters.json
+```
+
+Aprilo e riempi i cinque valori. Il file è già in `.gitignore`.
+
+Per `dbUrl` usa la stringa JDBC di Neon **senza utente e password dentro**: quelli
+vanno nei loro campi. Neon te la dà con tutto incluso, quindi va ripulita —
+tieni solo host, database e parametri:
+
+```
+jdbc:postgresql://ep-xxxx-pooler.c-6.eu-central-1.aws.neon.tech/neondb?sslmode=require&channelBinding=require
+```
+
+> **Controlla che ci sia `sslmode=require`.** Se manca, il backend non si avvia:
+> Neon rifiuta le connessioni in chiaro, e l'errore parla di rete, non di TLS.
+>
+> L'endpoint `-pooler` va benissimo: Neon usa PgBouncer 1.22, che supporta le
+> prepared statement a livello di protocollo, quindi Hibernate funziona senza
+> dover disattivare niente.
+
+**Verifica che sia davvero ignorato da git:**
+
+```bash
+git check-ignore -v infra/segreti.parameters.json
+```
+
+Deve stampare una riga. Se non stampa niente, il file **finirebbe nel
+repository**: fermati e sistemalo prima di andare avanti.
+
+### 2.4 Il gruppo di risorse e il servizio — *gratuito a riposo*
 
 Il gruppo di risorse è la scatola che contiene tutto. Crearlo non costa niente,
 e cancellarlo cancella tutto quello che c'è dentro: è la tua leva di emergenza
@@ -202,20 +282,16 @@ az group create --name <NOME_RG> --location <REGIONE>
 
 **Cosa devi vedere:** JSON con `"provisioningState": "Succeeded"`.
 
+> La regione si sceglie **qui e solo qui**: il template la eredita dal gruppo di
+> risorse, così non c'è un secondo posto in cui possa divergere.
+
 Ora l'ambiente e il servizio, descritti in `infra/main.bicep`. Il comando
 sostituisce quaranta click nel portale che non sapresti rifare fra tre mesi, ed
 è **rieseguibile**: lanciarlo due volte non crea due servizi.
 
 ```bash
-az deployment group create --resource-group <NOME_RG> --template-file infra/main.bicep --parameters infra/main.parameters.json --parameters immagine=ghcr.io/<UTENTE_GITHUB>/jeopardy-backend:latest dbUrl='<DB_URL>' dbUsername='<DB_UTENTE>' dbPassword='<DB_PASSWORD>' geminiApiKey='<CHIAVE_GEMINI>' groqApiKey='<CHIAVE_GROQ>'
+az deployment group create --resource-group <NOME_RG> --template-file infra/main.bicep --parameters infra/main.parameters.json --parameters infra/segreti.parameters.json --parameters immagine=ghcr.io/<UTENTE_GITHUB>/jeopardy-backend:latest
 ```
-
-> **Gli apici singoli servono.** Le stringhe di connessione contengono `?` e
-> `&`, che PowerShell interpreta se non sono protetti.
->
-> Le chiavi LLM sono le stesse che hai nel `.env` locale. Passandole qui
-> finiscono nelle impostazioni applicative del servizio, cifrate, e **non**
-> nel repository.
 
 Questo passo fallirà la prima volta, ed è previsto: l'immagine
 `ghcr.io/<UTENTE_GITHUB>/jeopardy-backend:latest` non esiste ancora. Il servizio
@@ -224,7 +300,7 @@ viene creato lo stesso e resterà in errore finché non fai il primo deploy
 
 **Cosa devi vedere:** in fondo all'output, `"provisioningState": "Succeeded"` e
 un valore `url` che assomiglia a
-`https://ca-jeopardy.westeurope.azurecontainerapps.io`. **Segnatelo**: è
+`https://ca-jeopardy.<REGIONE>.azurecontainerapps.io`. **Segnatelo**: è
 l'indirizzo del backend, e serve sia per la verifica sia per costruire l'APK.
 
 Se ti serve ritrovarlo dopo:
@@ -233,15 +309,35 @@ Se ti serve ritrovarlo dopo:
 az containerapp show --name ca-<NOME> --resource-group <NOME_RG> --query properties.configuration.ingress.fqdn -o tsv
 ```
 
+**Controlla subito che non sia comparso un workspace Log Analytics.** Il
+template non ne dichiara nessuno, ma è il tipo di risorsa che Azure aggancia da
+sé quando qualcosa la richiede, e consuma credito in silenzio:
+
+```bash
+az resource list --resource-group <NOME_RG> --query "[].{tipo:type, nome:name}" -o table
+```
+
+**Cosa devi vedere:** solo `Microsoft.App/managedEnvironments` e
+`Microsoft.App/containerApps`. Se compare `Microsoft.OperationalInsights/workspaces`,
+cancellalo:
+
+```bash
+az monitor log-analytics workspace delete --resource-group <NOME_RG> --workspace-name <NOME_WORKSPACE> --yes
+```
+
+**Se ti chiede** «Please provide securestring value for 'dbUsername'»: il file
+dei segreti non è stato letto, o ha un campo vuoto. Non rispondere al prompt —
+premi Ctrl+C, controlla il percorso e che tutti e cinque i valori siano pieni.
+
+**Se fallisce** con `RequestDisallowedByAzure` e un messaggio sulle «best
+available regions»: la regione del gruppo di risorse non è fra quelle permesse.
+Torna al passo 2.2, cancella il gruppo (`az group delete --name <NOME_RG>
+--yes`) e ricrealo in una regione dell'elenco.
+
 **Se fallisce** con `MissingSubscriptionRegistration`: torna al passo 1.4, la
 registrazione del provider non era finita.
 
-**Se fallisce** con un errore di quota o di disponibilità in `<REGIONE>`: prova
-`northeurope`. Non ho potuto verificare se Container Apps abbia restrizioni
-sulle sottoscrizioni Student, quindi questo è il punto in cui si scopre —
-motivo per cui viene prima di tutto il resto.
-
-### 2.3 Far parlare GitHub Actions con Azure — *gratuito, una tantum*
+### 2.5 Far parlare GitHub Actions con Azure — *gratuito, una tantum*
 
 Serve perché il workflow di deploy possa aggiornare il servizio **senza che tu
 salvi una password da nessuna parte**. Si usa la federazione OIDC: GitHub prova
@@ -266,15 +362,51 @@ Dai a quell'identità il permesso di modificare **solo** il gruppo di risorse:
 az role assignment create --assignee <APP_ID> --role Contributor --scope /subscriptions/$(az account show --query id -o tsv)/resourceGroups/<NOME_RG>
 ```
 
-Poi la credenziale federata, che lega l'identità al ramo `main` del tuo
-repository:
+Ora crea l'**ambiente** su GitHub. Il workflow lo dichiara (`environment: azure`)
+per due ragioni: è il punto in cui puoi chiedere un'approvazione manuale prima di
+un deploy che consuma credito, ed è quello che determina l'identità con cui
+GitHub si presenta ad Azure — vedi la nota qui sotto.
 
 ```bash
-az ad app federated-credential create --id <APP_ID> --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:<UTENTE_GITHUB>/Jeopardy:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
+gh api -X PUT repos/Yamino00/Jeopardy/environments/azure
 ```
 
-> Sostituisci `Jeopardy` con il nome esatto del repository se è diverso, e
-> attenzione alle maiuscole: il confronto è sensibile.
+Se vuoi anche il blocco manuale prima di ogni deploy — consigliato, visto che
+ogni deploy tocca risorse che consumano credito — quello si aggiunge dal
+browser: **Settings → Environments → azure → Required reviewers**, e metti te
+stesso.
+
+Poi la credenziale federata. **Non passarla come stringa sulla riga di comando**:
+PowerShell toglie le virgolette prima che `az` veda il JSON, e ottieni
+«Failed to parse string as JSON». Sta già pronta in un file:
+
+```bash
+az ad app federated-credential create --id <APP_ID> --parameters '@infra/federated-credential.json'
+```
+
+> **Il `subject` deve corrispondere carattere per carattere**, perché Azure fa un
+> confronto esatto e non accetta jolly.
+>
+> Quando un job dichiara un `environment:`, GitHub **non** mette il ramo nel
+> claim: il soggetto diventa `repo:OWNER/REPO:environment:NOME`. Il nostro è
+> quindi `repo:Yamino00/Jeopardy:environment:azure`, ed è già scritto così nel
+> file. Se ci mettessi `ref:refs/heads/main` — la forma che si trova in quasi
+> tutti i tutorial, che presuppongono un job senza ambiente — il login
+> fallirebbe con `AADSTS70021` e non sarebbe evidente il perché.
+>
+> **Le maiuscole contano**: `Yamino00/Jeopardy` è come GitHub scrive il
+> repository, e va copiato così. Se il tuo repository ha un altro nome o
+> proprietario, correggi `infra/federated-credential.json` prima di lanciare il
+> comando.
+
+**Cosa devi vedere:** un JSON con il `subject` che hai scelto. Per rileggerlo:
+
+```bash
+az ad app federated-credential list --id <APP_ID> --query "[].{nome:name, soggetto:subject}" -o table
+```
+
+**Se fallisce** con «Failed to parse string as JSON»: hai passato il JSON come
+stringa invece del file. Usa la forma `'@percorso'`, apici singoli compresi.
 
 Infine consegna a GitHub i tre identificatori. Non sono credenziali: da soli non
 aprono niente.
@@ -363,7 +495,7 @@ az consumption usage list --query "[].{data:usageStart, costo:pretaxCost}" -o ta
 ## 4. Deploy
 
 La procedura ripetibile, da fare a ogni rilascio. Due strade: la prima è quella
-normale, la seconda serve quando il passo 2.3 non è stato possibile.
+normale, la seconda serve quando il passo 2.5 non è stato possibile.
 
 ### 4.1 Con GitHub Actions — *consuma credito solo per il servizio*
 
@@ -396,8 +528,18 @@ gh run watch
 Tutti i passi verdi, e in fondo un riepilogo con l'indirizzo del servizio.
 
 **Se fallisce** al passo «Accesso ad Azure» con `AADSTS70021`: il `subject`
-della credenziale federata non corrisponde. Ricontrolla il passo 2.3: nome del
-repository e maiuscole devono coincidere esattamente.
+della credenziale federata non corrisponde a quello che GitHub ha mandato.
+Confronta i due. Quello atteso da Azure:
+
+```bash
+az ad app federated-credential list --id <APP_ID> --query "[].subject" -o tsv
+```
+
+Quello mandato da GitHub è `repo:Yamino00/Jeopardy:environment:azure`, perché il
+job dichiara `environment: azure`. Attenzione a tre trappole: le **maiuscole**
+del proprietario e del repository, la forma `environment:` invece di
+`ref:refs/heads/main`, e il fatto che l'ambiente `azure` deve **esistere** su
+GitHub.
 
 **Se fallisce** al passo «Test del backend»: non è un problema di deploy, è il
 codice. Guarda quale test è rosso.
@@ -485,6 +627,91 @@ la nota in fondo — quindi vanno guardati **mentre** il problema succede:
 az containerapp logs show --name ca-<NOME> --resource-group <NOME_RG> --follow
 ```
 
+### `RequestDisallowedByAzure` — «best available regions»
+
+Il messaggio parla di «un insieme delle regioni migliori disponibili»: significa
+che la regione del gruppo di risorse non è fra quelle permesse alla tua
+sottoscrizione. Non è un problema di quota né di capacità, ed è per questo che
+l'errore non suggerisce niente di utile.
+
+Trova quelle permesse:
+
+```bash
+az policy assignment list --query "[].{criterio:displayName, regioni:parameters.listOfAllowedLocations.value}" -o json
+```
+
+Poi ricrea il gruppo di risorse in una di quelle. Se avevi già provato a
+distribuire, il gruppo esiste ma è vuoto o incompleto: cancellalo e rifallo,
+non c'è niente da salvare.
+
+```bash
+az group delete --name <NOME_RG> --yes
+```
+
+```bash
+az group create --name <NOME_RG> --location <REGIONE_PERMESSA>
+```
+
+E rilancia il passo 2.4. L'elenco è deciso da Microsoft, cambia da persona a
+persona e non si modifica: l'unica via per aggiungerne è una richiesta al
+supporto, che per questo progetto non vale la pena.
+
+### PowerShell spezza il comando: «"password" non è riconosciuto come comando»
+
+Succede quando un segreto con dentro `&` finisce su una riga di comando. Su
+Windows `az` è un file `.cmd`: dopo PowerShell la riga viene riletta da
+`cmd.exe`, che tratta `&` come separatore di comandi **anche dentro gli apici
+singoli**. Il comando si spezza, i parametri dopo la prima `&` spariscono, e
+`az` te li chiede in un prompt interattivo.
+
+Non rispondere al prompt: premi Ctrl+C e usa il file dei segreti del passo 2.3.
+È l'unica soluzione robusta — e ha il vantaggio che i segreti non restano nella
+cronologia di PowerShell.
+
+### `InvalidTemplate` — «parameters were supplied, but do not correspond»
+
+Dentro `parameters`, ARM pretende che **ogni chiave corrisponda a un parametro
+del template**: una nota o un campo di troppo fanno fallire tutto il deploy. Il
+messaggio elenca la chiave incriminata e i parametri ammessi.
+
+Le note vanno **fuori** da `parameters`, in cima al file, dove ARM le ignora —
+è così che è fatto `infra/segreti.parameters.json.esempio`.
+
+Controlla quali chiavi hai davvero, senza stampare i valori:
+
+```bash
+powershell -Command "(Get-Content infra\segreti.parameters.json -Raw | ConvertFrom-Json).parameters.PSObject.Properties.Name"
+```
+
+Devono essere esattamente cinque: `dbUrl`, `dbUsername`, `dbPassword`,
+`geminiApiKey`, `groqApiKey`.
+
+### Prima di distribuire: validare senza distribuire
+
+`validate` fa controllare il template ad Azure **senza creare niente e senza
+consumare credito**. Se stai modificando `infra/`, passa sempre di qui prima:
+
+```bash
+az deployment group validate --resource-group <NOME_RG> --template-file infra/main.bicep --parameters infra/main.parameters.json --parameters infra/segreti.parameters.json --query "properties.provisioningState" -o tsv
+```
+
+**Cosa devi vedere:** la parola `Succeeded`.
+
+È più severo di `az bicep build`: quello controlla la sintassi, questo chiede ad
+Azure se accetterebbe davvero quelle risorse. Due difetti di questa guida sono
+stati trovati così e non compilando.
+
+### «Please provide securestring value for 'dbUsername'»
+
+Il file dei segreti non è stato letto, o ha campi vuoti. Ctrl+C, poi controlla:
+
+```bash
+type infra\segreti.parameters.json
+```
+
+Tutti e cinque i valori devono essere pieni, e il percorso passato con
+`--parameters` deve puntare a questo file.
+
 ### «Il servizio non risponde» / la verifica si ferma al punto 1
 
 Se sono passati più di due minuti, non è l'avvio a freddo. Controlla lo stato:
@@ -505,8 +732,9 @@ davvero il servizio:
 az containerapp show --name ca-<NOME> --resource-group <NOME_RG> --query "properties.template.containers[0].env[?name=='DB_URL']" -o table
 ```
 
-Il valore è mascherato perché è un segreto. Per correggerlo, rilancia il
-comando del passo 2.2 con la stringa giusta.
+Il valore è mascherato perché è un segreto: `az` non te lo mostra. Per
+correggerlo, sistema `dbUrl` in `infra/segreti.parameters.json` e rilancia il
+comando del passo 2.4.
 
 L'altro caso possibile è il progetto Neon sospeso per inattività prolungata:
 aprilo dalla console e si risveglia.
@@ -516,8 +744,8 @@ aprilo dalla console e si risveglia.
 Il backend non riesce a generare domande. Due cause:
 
 - **Chiavi LLM mancanti o scadute.** I log dicono «Generazione IA non
-  configurata» oppure «Chiave Gemini non valida». Rilancia il passo 2.2 con le
-  chiavi giuste.
+  configurata» oppure «Chiave Gemini non valida». Correggi `geminiApiKey` e
+  `groqApiKey` in `infra/segreti.parameters.json` e rilancia il passo 2.4.
 - **Banca vuota per quell'argomento e IA che non produce niente.** Il backend
   si rifiuta di consegnare un tabellone con dei buchi, ed è voluto: una griglia
   incompleta si scopre a partita iniziata. Riprova, o scegli un argomento meno
@@ -621,8 +849,18 @@ dove `<DB_URL_SENZA_PREFISSO_JDBC>` è la stessa stringa senza `jdbc:` davanti.
 
 ## Note su cosa costa, e su cosa non ho potuto verificare
 
-**Prezzi verificati il 20 agosto 2026** dall'API prezzi al dettaglio di Azure
-per `westeurope` in USD, non dalla documentazione commerciale:
+**Prezzi verificati il 20 agosto 2026** dall'API prezzi al dettaglio di Azure,
+non dalla documentazione commerciale. Controllati in USD sia per `westeurope`
+sia per `italynorth`: **vCPU e memoria costano identici**, e Italy North ha le
+richieste perfino più basse ($0,40 per milione contro $0,56). I conti qui sotto
+valgono per entrambe.
+
+Le quote gratuite sono uguali in ogni regione. Per i numeri esatti di una
+regione diversa:
+
+```bash
+az rest --method get --url "https://prices.azure.com/api/retail/prices?currencyCode=USD&\$filter=serviceName%20eq%20'Azure%20Container%20Apps'%20and%20armRegionName%20eq%20'<REGIONE>'" --query "Items[?contains(meterName,'Standard')].{voce:meterName, prezzo:retailPrice, unita:unitOfMeasure}" -o table
+```
 
 | Voce | Costo |
 |---|---|
@@ -637,21 +875,47 @@ per `westeurope` in USD, non dalla documentazione commerciale:
 
 Due voci **deliberatamente evitate**: Azure Container Registry Basic ($0,167 al
 giorno, cioè $5,08 al mese) sostituito da ghcr.io, e Log Analytics disattivato
-con `logsDestination: none` in `infra/main.bicep`.
+omettendo `appLogsConfiguration` in `infra/main.bicep`.
 
-Cose che **non ho potuto verificare** e su cui potresti trovare sorprese:
+### Verificato sul campo, al primo tentativo
 
-- **Se Container Apps abbia quote o restrizioni sulle sottoscrizioni Student in
-  West Europe.** Si scopre al passo 2.2, ed è per questo che quel passo viene
-  prima del resto.
+- **Le regioni sono ristrette, e West Europe può non esserci.** Il primo deploy
+  reale è fallito con `RequestDisallowedByAzure` su `westeurope`. Da qui il
+  passo 2.2, che va fatto prima di scegliere qualunque cosa.
+- **I segreti sulla riga di comando si rompono su Windows.** Le `&` della
+  stringa Neon sono state interpretate da `cmd.exe` anche dentro gli apici
+  singoli: il comando si è spezzato a metà, i parametri successivi sono
+  spariti e `az` ha cominciato a chiederli in un prompt interattivo. Da qui il
+  file dei segreti del passo 2.3.
+- **Il template aveva un difetto vero.** La soglia della regola di scala era
+  fuori da `metadata`: Bicep la accettava con l'avviso `BCP037` e ARM l'avrebbe
+  ignorata in silenzio. Corretta.
+
+- **I due template Bicep compilano puliti** (`az bicep build`) e **passano la
+  validazione lato Azure** contro questa sottoscrizione
+  (`az deployment group validate` e `az deployment sub validate`): `Succeeded`
+  entrambi, senza creare risorse.
+- **Container Apps è disponibile in tutte e cinque le regioni permesse** da
+  questa sottoscrizione, `italynorth` compresa.
+- **Il soggetto della credenziale federata dipende dall'ambiente, non dal ramo.**
+  Il workflow dichiara `environment: azure`, quindi GitHub manda
+  `repo:OWNER/REPO:environment:azure` e non `ref:refs/heads/main`. La prima
+  stesura di questa guida usava la forma col ramo — quella dei tutorial, che
+  presuppongono un job senza ambiente — e avrebbe fatto fallire il login.
+- **La destinazione dei log non si scrive `'none'`.** Il messaggio di Azure
+  («Supported values: 'log-analytics', 'azure-monitor' or none») sembra dire il
+  contrario, ma quel «none» significa *nessun valore*: la proprietà
+  `appLogsConfiguration` va **omessa**. Trovato dalla validazione, non dalla
+  compilazione.
+
+### Cose che restano non verificate
+
 - **La forma esatta di `az consumption budget list`** nella versione corrente
   della CLI: quel gruppo di comandi si è spostato più volte. Il percorso nel
   portale è indicato al passo 3 come alternativa.
 - **La franchigia sul traffico in uscita.** Il nostro traffico è JSON,
   dell'ordine dei megabyte al mese: qualunque sia la franchigia ci stiamo
   dentro, ma non l'ho verificata.
-- **I template Bicep non sono stati validati** con `az bicep build`, perché la
-  CLI di Azure non era installata sulla macchina su cui sono stati scritti. Il
-  primo `az deployment group create` è anche il primo controllo di sintassi: se
-  segnala un errore nel template, è di questa natura e non della tua
-  configurazione.
+- **Il deploy vero non è ancora andato a fondo**: il primo tentativo si è
+  fermato sulla regione. Che il template descriva risorse valide è verificato,
+  che Azure le accetti tutte lo si vede al passo 2.4.
